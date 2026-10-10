@@ -138,6 +138,25 @@ disclaimer — the OAuth use itself is the violation).
 so a Python/OpenSSL upgrade that silently changes the offered handshake fails
 loudly instead of growing a new fingerprint unnoticed.
 
+## Transport parity contract
+
+`transport_contract.json` defines 7 TLS axes (JA3, ALPN, cipher count/order,
+supported groups, extension order, EC point formats), each with an expected
+value measured from `agy`, a tolerance, and a weight. `tools/transport_check.py`
+measures the plugin's active transport and compares against the contract.
+
+Two modes:
+- **permissive** — log divergence, never block (default). Always operational.
+- **strict** — fail-closed. Exit 1 on any axis beyond tolerance.
+
+Current status (stdlib backend):
+- 1/7 axes matched (ALPN only)
+- 6/7 diverged — all reachable by a Go sidecar with `utls` replay
+
+`utls` (refraction-networking/utls) can replay a captured `agy` ClientHello
+byte-for-byte, achieving 100% JA3 parity. A Go sidecar using `utls` is the
+path to full transport parity; stdlib cannot reach it.
+
 ## Known divergences (read before porting)
 
 **The envelope was realigned upstream in 0.5.0 (`ac1a393`) and this port never caught

@@ -197,3 +197,58 @@ def test_tuned_ja3_differs_from_default_but_is_stable():
     assert "error" not in tuned_a, tuned_a.get("error")
     assert tuned_a["ja3_md5"] == tuned_b["ja3_md5"], (
         "the tuned ClientHello must be deterministic across connections")
+
+
+# ── transport_check.py contract verification ─────────────────────────
+
+
+def test_transport_contract_is_valid_json():
+    """The contract must be valid JSON with the expected structure."""
+    import json
+    from pathlib import Path
+
+    contract = json.loads(Path("transport_contract.json").read_text(encoding="utf-8"))
+    assert "axes" in contract
+    assert "modes" in contract
+    assert "permissive" in contract["modes"]
+    assert "strict" in contract["modes"]
+    assert len(contract["axes"]) >= 5
+
+
+def test_transport_check_reports_divergence_honestly():
+    """The checker must report the stdlib gap without crashing.
+
+    With the stdlib backend active, most axes diverge from Go. The checker
+    must report this honestly (not crash, not claim parity).
+    """
+    import importlib.util
+    from pathlib import Path as _Path
+
+    checker_path = _Path(__file__).resolve().parent.parent / "tools" / "transport_check.py"
+    spec = importlib.util.spec_from_file_location("transport_check", checker_path)
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+
+    result = checker.run_check("permissive")
+    assert "error" not in result, result.get("error")
+    assert result["summary"]["diverged"] > 0, (
+        "stdlib backend must report divergence from Go")
+    assert result["summary"]["matched"] < result["summary"]["total"], (
+        "stdlib backend must not claim full parity")
+
+
+def test_transport_check_strict_mode_fails_on_divergence():
+    """Strict mode must fail (ok=False) when axes diverge."""
+    import importlib.util
+    from pathlib import Path as _Path
+
+    checker_path = _Path(__file__).resolve().parent.parent / "tools" / "transport_check.py"
+    spec = importlib.util.spec_from_file_location("transport_check", checker_path)
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+
+    result = checker.run_check("strict")
+    assert "error" not in result, result.get("error")
+    assert result["ok"] is False, (
+        "strict mode must fail when axes diverge")
+    assert len(result["failures"]) > 0
