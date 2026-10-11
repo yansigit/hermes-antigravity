@@ -24,7 +24,7 @@ try:
         fetch_account_quota,
         TUNED_OPENER,
     )
-    from quota import best_model_row, quota_is_low
+    from .quota import best_model_row, quota_is_low
     from .translator import (
         to_antigravity_payload,
         parse_sse_event,

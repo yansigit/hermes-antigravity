@@ -113,11 +113,18 @@ def profile_facts() -> dict[str, str]:
     Pinned to the 2026-10-10 same-host capture so a regression in the offered
     profile is visible. Not a claim that the plugin matches Go — see the module
     docstring for what stdlib cannot reach.
+
+    Provenance is split by source:
+    - go_* : the official agy reference toward daily-cloudcode-pa, from dhaern's
+      Windows 11 capture (issue #35). Windows x86-64, Python 3.14.7, OpenSSL 3.5.8.
+    - tuned_* : the plugin's stdlib profile (tls_profile.build_ssl_context), as
+      measured on this host. This is what the drift test pins against.
     """
     return {
         "go_ja3": "9b7dcdf3f997f1fb7b4409c94cb7ef36",
         "go_alpn": "(none toward daily-cloudcode-pa)",
         "go_cipher_count": "13",
+        "go_source": "agy 1.3.3 on Windows 11 x86-64 (dhaern, issue #35)",
         "measured_host": "linux-x86-64",
         "measured_python": "3.14.7",
         "measured_openssl": "OpenSSL 3.5.8",

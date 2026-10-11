@@ -96,10 +96,10 @@ except ImportError:
 
 try:
     from .accounts import AntigravityAccountRegistry, AccountRecord
-    from .models import DEFAULT_USER_AGENT
+    from .models import DEFAULT_USER_AGENT, TUNED_OPENER
 except ImportError:
     from accounts import AntigravityAccountRegistry, AccountRecord
-    from models import DEFAULT_USER_AGENT
+    from models import DEFAULT_USER_AGENT, TUNED_OPENER
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -343,7 +343,7 @@ class AntigravityAuthManager:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
+        with TUNED_OPENER.open(req, timeout=10.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         new_access_token = data["access_token"]
@@ -455,7 +455,7 @@ class AntigravityAuthManager:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
+        with TUNED_OPENER.open(req, timeout=10.0) as resp:
             token_data = json.loads(resp.read().decode("utf-8"))
 
         # Try to get email from userinfo if not provided
@@ -509,7 +509,7 @@ class AntigravityAuthManager:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            with TUNED_OPENER.open(req, timeout=5.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data.get("email")
         except Exception:
@@ -528,7 +528,7 @@ class AntigravityAuthManager:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=8.0) as resp:
+            with TUNED_OPENER.open(req, timeout=8.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return extract_project_id(data)
         except Exception as exc:
