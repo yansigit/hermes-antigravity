@@ -758,9 +758,13 @@ def _print_quota_status(registry: "AntigravityAccountRegistry", account: Any) ->
         print(f"  quota: unavailable ({exc})")
         return
     try:
+        from .models import fetch_account_quota
+        from . import quota as _quota_mod
+    except ImportError:
         from models import fetch_account_quota
         import quota as _quota_mod
 
+    try:
         snapshot = fetch_account_quota(token, project_id, timeout=6.0, email=account.email)
         plan = snapshot.get("plan")
         if plan:
@@ -901,8 +905,12 @@ def _cli_quota(registry: AntigravityAccountRegistry) -> None:
             print(f"Quota: could not resolve credentials for {account.email} ({exc}).")
         return
 
-    from models import fetch_account_quota
-    import quota as _quota_mod
+    try:
+        from .models import fetch_account_quota
+        from . import quota as _quota_mod
+    except ImportError:
+        from models import fetch_account_quota
+        import quota as _quota_mod
 
     try:
         snapshot = fetch_account_quota(token, project_id, email=account.email)
