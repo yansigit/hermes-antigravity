@@ -22,6 +22,7 @@ try:
         resolve_session_trajectory,
         antigravity_request_envelope,
         fetch_account_quota,
+        TUNED_OPENER,
     )
     from .quota import best_model_row, quota_is_low
     from .translator import (
@@ -42,6 +43,7 @@ except ImportError:
         resolve_session_trajectory,
         antigravity_request_envelope,
         fetch_account_quota,
+        TUNED_OPENER,
     )
     from quota import best_model_row, quota_is_low
     from translator import (
@@ -497,7 +499,7 @@ class AntigravityClient:
                 method="POST",
             )
             try:
-                response = urllib.request.urlopen(req, timeout=30.0)
+                response = TUNED_OPENER.open(req, timeout=30.0)
                 break
             except urllib.error.HTTPError as err:
                 last_error = err
@@ -520,7 +522,7 @@ class AntigravityClient:
                         method="POST",
                     )
                     try:
-                        response = urllib.request.urlopen(req, timeout=30.0)
+                        response = TUNED_OPENER.open(req, timeout=30.0)
                         break
                     except Exception as retry_exc:
                         last_error = retry_exc
@@ -555,7 +557,7 @@ class AntigravityClient:
                     )
                     time.sleep(retry_after)
                     try:
-                        response = urllib.request.urlopen(req, timeout=30.0)
+                        response = TUNED_OPENER.open(req, timeout=30.0)
                         break
                     except Exception as retry_exc:
                         last_error = retry_exc

@@ -108,6 +108,63 @@ contains the string `996823801` repeated in build metadata
 (`googlefile:/google_src/files/996823801/`, `changelist 996823801`), and
 reports internal version `1.3.2.1` while `--version` prints `1.3.3`.
 
+## TLS transport divergence (issue #35)
+
+The wire constants above are only half the identity: the transport differs too.
+`agy` is a Go binary; this port speaks TLS through Python's stdlib
+`ssl`/OpenSSL. Their ClientHello (hence JA3) differs, and a JA3 is a cheap
+server-side signal to correlate a non-official client.
+
+Same-host capture, 2026-10-10, Linux x86-64, Python 3.14.7 / OpenSSL 3.5.8,
+both dialing `daily-cloudcode-pa.googleapis.com`:
+
+| Field | agy (Go) | urllib default | urllib + `tls_profile` |
+|---|---|---|---|
+| Cipher count | 13 | 17 | 13 |
+| ALPN | (none) | `http/1.1` | (none) |
+| Supported groups | `4588,4587,4589,29,23,24,25` | `4588,29,23,30,24,25,256,257` | same as default |
+| JA3 MD5 | `9b7dcdf3f997f1fb7b4409c94cb7ef36` | `a1ebe7f90a577e9399eaa60be3c67721` | (measured, see below) |
+
+**Critical correction (dhaern review):** agy sends **no ALPN** toward
+`daily-cloudcode-pa.googleapis.com`. The earlier measurement of `h2,http/1.1` was
+from agy talking to `antigravity-unleash.goog` and `play.googleapis.com`, not the
+inference host. Advertising `h2` also **breaks** urllib/http.client (HTTP/1.1
+only) — Google selects h2, then rejects the request. The profile now omits
+ALPN entirely, matching agy on the inference host and keeping requests working.
+
+`tls_profile.py` narrows the cipher list toward Go's (13 suites, Go order) and
+drops extensions agy does not send (`OP_NO_TICKET`, `post_handshake_auth=False`,
+`SSL_OP_NO_ENCRYPT_THEN_MAC`). It **cannot** reach parity: Python's public
+SSL API exposes neither the ordered supported-groups list (Go carries the PQC
+hybrids `4587`/`4589`; Python's carries P-256/P-384 instead) nor the extension
+order. Those two fields dominate the JA3, so an exact Go fingerprint
+is not achievable in stdlib. The profile reduces the observable difference; it
+does not erase it, and it does not change the ToS position (see README
+disclaimer — the OAuth use itself is the violation).
+
+`tests/test_tls_profile.py` pins the tuned profile with a live loopback capture,
+so a Python/OpenSSL upgrade that silently changes the offered handshake fails
+loudly instead of growing a new fingerprint unnoticed.
+
+## Transport parity contract
+
+`transport_contract.json` defines 7 TLS axes (JA3, ALPN, cipher count/order,
+supported groups, extension order, EC point formats), each with an expected
+value measured from `agy`, a tolerance, and a weight. `tools/transport_check.py`
+measures the plugin's active transport and compares against the contract.
+
+Two modes:
+- **permissive** — log divergence, never block (default). Always operational.
+- **strict** — fail-closed. Exit 1 on any axis beyond tolerance.
+
+Current status (stdlib backend):
+- 1/7 axes matched (ALPN only)
+- 6/7 diverged — all reachable by a Go sidecar with `utls` replay
+
+`utls` (refraction-networking/utls) can replay a captured `agy` ClientHello
+byte-for-byte, achieving 100% JA3 parity. A Go sidecar using `utls` is the
+path to full transport parity; stdlib cannot reach it.
+
 ## Known divergences (read before porting)
 
 **The envelope was realigned upstream in 0.5.0 (`ac1a393`) and this port never caught

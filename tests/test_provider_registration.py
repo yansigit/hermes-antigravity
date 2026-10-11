@@ -80,3 +80,43 @@ def test_declared_env_vars_match_what_the_code_reads():
 
     assert declared == read, (
         f"declared={sorted(declared)} read={sorted(read)}")
+
+
+def test_client_imports_as_package_submodule():
+    """client.py must import as a package submodule (antigravity.client).
+
+    Hermes loads the plugin as a package, so client.py's relative imports
+    (from .auth, from .models, from .quota) must resolve. A regression that
+    turns a relative import into a bare one (from quota) raises
+    ModuleNotFoundError inside the package branch, falls into the except
+    ImportError branch, and that one fails too — breaking plugin load while
+    the repo-root test suite still passes (absolute fallbacks resolve there).
+
+    This imports client.py as a submodule of the real plugin package from its
+    parent directory, so relative imports must genuinely resolve.
+    """
+    import importlib
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+    package_name = repo.name  # 'antigravity'
+    parent = str(repo.parent)
+    added = parent not in sys.path
+    if added:
+        sys.path.insert(0, parent)
+    # Drop any cached copy so we exercise a fresh package import.
+    for name in list(sys.modules):
+        if name == package_name or name.startswith(f"{package_name}."):
+            del sys.modules[name]
+    try:
+        mod = importlib.import_module(f"{package_name}.client")
+    except ModuleNotFoundError as exc:
+        raise AssertionError(
+            f"{package_name}.client failed to import as a package "
+            f"(relative import broken?): {exc}") from exc
+    finally:
+        if added:
+            sys.path.remove(parent)
+    # The package branch must have provided these, not the except fallback.
+    assert hasattr(mod, "TUNED_OPENER")
+    assert hasattr(mod, "AntigravityClient")

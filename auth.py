@@ -30,6 +30,22 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Shown before the OAuth flow starts, at the moment of risk. Google's Antigravity
+# Additional Terms state that using third-party software to access the Service
+# with Antigravity OAuth is a breach "and may be grounds for suspension or
+# termination of your Antigravity and/or Gemini CLI accounts." This is not
+# theoretical: Google has run enforcement waves disabling such accounts, with
+# permanent bans on a second flag. The user must see this before signing in.
+_TOS_WARNING = (
+    "WARNING: Google's Terms of Service prohibit accessing Antigravity with "
+    "third-party software using Antigravity OAuth.\n"
+    "         Violations may lead to suspension or termination of your "
+    "Antigravity and/or Gemini CLI accounts.\n"
+    "         For a ToS-compliant integration, use a Gemini AI Studio / "
+    "Enterprise API key instead of Antigravity OAuth.\n"
+    "         Continue at your own risk."
+)
+
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 # The loopback callback listener. Fixed port and host because REDIRECT_URI is
@@ -80,10 +96,10 @@ except ImportError:
 
 try:
     from .accounts import AntigravityAccountRegistry, AccountRecord
-    from .models import DEFAULT_USER_AGENT
+    from .models import DEFAULT_USER_AGENT, TUNED_OPENER
 except ImportError:
     from accounts import AntigravityAccountRegistry, AccountRecord
-    from models import DEFAULT_USER_AGENT
+    from models import DEFAULT_USER_AGENT, TUNED_OPENER
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -327,7 +343,7 @@ class AntigravityAuthManager:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
+        with TUNED_OPENER.open(req, timeout=10.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         new_access_token = data["access_token"]
@@ -439,7 +455,7 @@ class AntigravityAuthManager:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
+        with TUNED_OPENER.open(req, timeout=10.0) as resp:
             token_data = json.loads(resp.read().decode("utf-8"))
 
         # Try to get email from userinfo if not provided
@@ -493,7 +509,7 @@ class AntigravityAuthManager:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            with TUNED_OPENER.open(req, timeout=5.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data.get("email")
         except Exception:
@@ -512,7 +528,7 @@ class AntigravityAuthManager:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=8.0) as resp:
+            with TUNED_OPENER.open(req, timeout=8.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return extract_project_id(data)
         except Exception as exc:
@@ -648,6 +664,7 @@ def antigravity_auth_handler(action: str, args: Any) -> bool:
 def _antigravity_auth_add(args: Any) -> bool:
     from agent.credential_pool import load_pool
 
+    print(_TOS_WARNING)
     pool = load_pool("antigravity")
     creds = _antigravity_oauth_login(args)
     token = _antigravity_token_extractor(creds)

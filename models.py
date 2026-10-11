@@ -19,8 +19,16 @@ try:
     from . import quota as _quota
 except ImportError:
     import quota as _quota
+try:
+    from .tls_profile import get_tuned_opener as _get_tuned_opener
+except ImportError:
+    from tls_profile import get_tuned_opener as _get_tuned_opener
 
 logger = logging.getLogger(__name__)
+
+# Scope the tuned HTTPS ClientHello to this plugin (see tls_profile).
+# Best-effort: never raises, never blocks a request if a knob is missing.
+TUNED_OPENER = _get_tuned_opener()
 
 
 CLI_VERSION = "1.3.3"
@@ -315,8 +323,6 @@ def resolve_session_trajectory(
     The fallback seed is the first message only, so follow-up turns in the
     same process reuse the same trajectory.
     """
-    import json as _json
-
     explicit = str(session_id or "").strip()
     if explicit:
         seed = f"session:{explicit}"
@@ -326,7 +332,7 @@ def resolve_session_trajectory(
         if isinstance(first_msg.get("content"), str):
             content_seed = first_msg["content"][:64]
         elif isinstance(first_msg.get("content"), list) and first_msg["content"]:
-            content_seed = _json.dumps(first_msg["content"][0])[:64]
+            content_seed = json.dumps(first_msg["content"][0])[:64]
         seed = f"{first_msg.get('role', 'user')}:{content_seed}"
     if seed not in _session_trajectory_map:
         _session_trajectory_map[seed] = {
@@ -415,7 +421,7 @@ def fetch_available_models(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with TUNED_OPENER.open(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 models_dict = data.get("models", {})
                 for m_id, info in models_dict.items():
@@ -481,7 +487,7 @@ def _post_json(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with TUNED_OPENER.open(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8")
                 try:
                     data = json.loads(raw)
