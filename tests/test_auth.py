@@ -93,7 +93,14 @@ def test_busy_callback_port_is_reported_with_its_reason():
     # Occupy the real port so HTTPServer raises the same EADDRINUSE a second
     # concurrent login would.
     blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if os.name == "nt":
+        # On Windows SO_REUSEADDR lets a second socket bind over the first, so
+        # it would not force EADDRINUSE and the test would assert nothing.
+        # SO_EXCLUSIVEADDRUSE makes this bind exclusive, which is the real
+        # concurrent-login situation (and is Windows-only).
+        blocker.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         blocker.bind((auth_mod._CALLBACK_HOST, auth_mod._CALLBACK_PORT))
         blocker.listen(1)

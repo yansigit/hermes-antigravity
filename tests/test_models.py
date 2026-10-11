@@ -387,10 +387,16 @@ def test_discovered_enums_survive_a_restart():
 
 def test_model_enum_store_is_owner_only():
     """The store lives next to the account registry, so it must be private too."""
+    import os
     import stat
     import tempfile
     from pathlib import Path
     import models as models_mod
+
+    # Windows has no POSIX mode bits (chmod is a no-op), so the 0600 invariant
+    # is only assertable where the OS enforces it.
+    if os.name == "nt":
+        return
 
     sandbox = Path(tempfile.mkdtemp())
     original_store = models_mod.MODEL_ENUM_STORE

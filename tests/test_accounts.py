@@ -23,6 +23,23 @@ LEGACY_PATHS = [
 ]
 
 
+def _mkdtemp_outside_hermes(prefix: str = "hermes-home-test-") -> Path:
+    """A temp dir guaranteed NOT under ~/.hermes, portably.
+
+    The registry tests need a root the core will not fold back to ~/.hermes.
+    tempfile.mkdtemp() alone is not enough: on some hosts TMPDIR lives under
+    ~/.hermes (e.g. the Hermes scratch dir), so the sandbox would resolve back
+    to the shared root and the assertion would test nothing. Prefer the OS temp
+    dir; fall back to the user's home parent if that is itself under ~/.hermes.
+    Windows has no /tmp — tempfile.gettempdir() returns %TEMP% there.
+    """
+    hermes_root = Path.home() / ".hermes"
+    base = Path(tempfile.gettempdir()).resolve()
+    if base == hermes_root or hermes_root in base.parents:
+        base = Path.home()
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=str(base)))
+
+
 def _patched_legacy_paths(tmpdir):
     """Return a list of patch contexts that disable all legacy paths."""
     nonexistent = os.path.join(tmpdir, "nonexistent")
@@ -332,6 +349,10 @@ class TestAntigravityAccountRegistry:
                         assert reg3.account_count == 2
 
     def test_registry_file_permissions(self):
+        # POSIX mode bits do not exist on Windows (chmod is a no-op there), so
+        # this invariant is only assertable where the OS enforces it.
+        if os.name == "nt":
+            return
         with tempfile.TemporaryDirectory() as tmpdir:
             reg, _ = _make_registry(tmpdir)
             reg.add_account(email="alice@example.com", credentials={"access_token": "a"})
@@ -509,14 +530,11 @@ def test_registry_paths_follow_hermes_home():
     HERMES_HOME for real.
     """
     import os
-    from pathlib import Path
-    import tempfile
 
     # Must NOT live under ~/.hermes: get_default_hermes_root() folds any path there
     # back to the root, so a sandbox inside it would silently resolve to ~/.hermes
     # and the assertion would be testing nothing.
-    sandbox = Path(tempfile.mkdtemp(dir="/tmp"))
-    sandbox = Path(str(sandbox).replace("/tmp/", "/tmp/hermes-home-test-", 1))
+    sandbox = _mkdtemp_outside_hermes()
     sandbox.mkdir(parents=True, exist_ok=True)
     previous = os.environ.get("HERMES_HOME")
     os.environ["HERMES_HOME"] = str(sandbox)
@@ -546,12 +564,10 @@ def test_two_hermes_homes_have_separate_registries():
     design; what must not happen is two separate roots colliding.
     """
     import os
-    from pathlib import Path
-    import tempfile
 
     def root_for(name):
         # deliberately outside ~/.hermes: the core normalises anything under it
-        root = Path(tempfile.mkdtemp(dir="/tmp")) / f"hermes-home-test-{name}"
+        root = _mkdtemp_outside_hermes(prefix=f"hermes-home-test-{name}-")
         root.mkdir(parents=True, exist_ok=True)
         return root
 
