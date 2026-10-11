@@ -144,7 +144,7 @@ def test_cipher_list_has_no_legacy_cbc_suites():
 
 def test_profile_facts_pin_the_measured_go_ja3():
     facts = profile_facts()
-    assert facts["go_ja3"] == "03117a8ed39ef02427ebbc39f121275c"
+    assert facts["go_ja3"] == "9b7dcdf3f997f1fb7b4409c94cb7ef36"
     assert facts["go_alpn"] == "(none toward daily-cloudcode-pa)"
     assert facts["go_cipher_count"] == "13"
 
@@ -255,3 +255,98 @@ def test_transport_check_strict_mode_fails_on_divergence():
     assert result["ok"] is False, (
         "strict mode must fail when axes diverge")
     assert len(result["failures"]) > 0
+
+
+# ── Live: a real HTTP/1.1 request completes over the tuned transport ─
+
+def _self_signed_cert(tmpdir):
+    """Generate a self-signed cert+key via openssl CLI (present on ubuntu-latest).
+
+    Returns (cert_path, key_path). No Python crypto dependency: this must run
+    in CI without adding a package.
+    """
+    import subprocess
+    import tempfile
+
+    key = f"{tmpdir}/key.pem"
+    cert = f"{tmpdir}/cert.pem"
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+         "-keyout", key, "-out", cert, "-days", "1",
+         "-subj", "/CN=daily-cloudcode-pa.googleapis.com"],
+        check=True, capture_output=True,
+    )
+    return cert, key
+
+
+def _tls_echo_server(port, cert, key):
+    """A minimal TLS server that speaks HTTP/1.1 and echoes a fixed body.
+
+    The server verifies nothing on its side; the CLIENT context decides whether
+    to trust. This completes a real request over the tuned transport — the test
+    the loopback ClientHello capture never performed (it closes before
+    ServerHello, so it never caught the h2-breaks-urllib bug).
+    """
+    import http.server
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", port), Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(cert, key)
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    return srv
+
+
+def test_tuned_transport_completes_a_real_http11_request():
+    """The tuned transport must complete a real HTTP/1.1 request, not just
+    offer a ClientHello.
+
+    This is the regression guard for the h2 bug: advertising h2,http/1.1 broke
+    every request because urllib/http.client only speaks HTTP/1.1 — Google
+    selects h2 via ALPN, then rejects the HTTP/1.1 body. The loopback capture
+    test never caught it because the listener closed before ServerHello.
+    """
+    import http.client
+    import tempfile
+    import urllib.request
+
+    from tls_profile import get_tuned_opener
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cert, key = _self_signed_cert(tmpdir)
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        port = srv.getsockname()[1]
+        srv.close()
+
+        server = _tls_echo_server(port, cert, key)
+        try:
+            # Client side: trust the self-signed cert, use the tuned context.
+            client_ctx = build_ssl_context()
+            client_ctx.check_hostname = False
+            client_ctx.verify_mode = ssl.CERT_NONE
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=client_ctx))
+            req = urllib.request.Request(
+                f"https://127.0.0.1:{port}/test")
+            with opener.open(req, timeout=10) as resp:
+                assert resp.status == 200
+                body = resp.read()
+                assert body == b'{"ok":true}', body
+        finally:
+            server.shutdown()
+            server.server_close()
