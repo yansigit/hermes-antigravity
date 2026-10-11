@@ -20,15 +20,15 @@ try:
 except ImportError:
     import quota as _quota
 try:
-    from .tls_profile import install_tuned_opener
+    from .tls_profile import get_tuned_opener as _get_tuned_opener
 except ImportError:
-    from tls_profile import install_tuned_opener
+    from tls_profile import get_tuned_opener as _get_tuned_opener
 
 logger = logging.getLogger(__name__)
 
-# Tune the HTTPS ClientHello toward the official Go client (see tls_profile).
-# Best-effort: never raises, never blocks a request if the build lacks a knob.
-install_tuned_opener()
+# Scope the tuned HTTPS ClientHello to this plugin (see tls_profile).
+# Best-effort: never raises, never blocks a request if a knob is missing.
+TUNED_OPENER = _get_tuned_opener()
 
 
 CLI_VERSION = "1.3.3"
@@ -423,7 +423,7 @@ def fetch_available_models(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with TUNED_OPENER.open(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 models_dict = data.get("models", {})
                 for m_id, info in models_dict.items():
@@ -489,7 +489,7 @@ def _post_json(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with TUNED_OPENER.open(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8")
                 try:
                     data = json.loads(raw)

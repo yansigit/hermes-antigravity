@@ -16,15 +16,15 @@
   "axes": {
     "ja3": {
       "description": "TLS ClientHello JA3 fingerprint (MD5 of ordered ciphers, extensions, groups, point formats)",
-      "expected": "03117a8ed39ef02427ebbc39f121275c",
+      "expected": "9b7dcdf3f997f1fb7b4409c94cb7ef36",
       "tolerance": "exact",
       "weight": 1.0,
       "stdlib_reachable": false,
       "sidecar_reachable": true
     },
     "alpn": {
-      "description": "ALPN protocols offered in ClientHello",
-      "expected": ["h2", "http/1.1"],
+      "description": "ALPN protocols offered in ClientHello (agy sends none toward daily-cloudcode-pa)",
+      "expected": [],
       "tolerance": "exact",
       "weight": 0.8,
       "stdlib_reachable": true,

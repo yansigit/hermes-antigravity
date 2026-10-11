@@ -120,16 +120,24 @@ both dialing `daily-cloudcode-pa.googleapis.com`:
 
 | Field | agy (Go) | urllib default | urllib + `tls_profile` |
 |---|---|---|---|
-| Cipher count | 13 | 17 | 12 |
-| ALPN | `h2,http/1.1` | `http/1.1` | `h2,http/1.1` |
+| Cipher count | 13 | 17 | 13 |
+| ALPN | (none) | `http/1.1` | (none) |
 | Supported groups | `4588,4587,4589,29,23,24,25` | `4588,29,23,30,24,25,256,257` | same as default |
-| JA3 MD5 | `03117a8ed39ef02427ebbc39f121275c` | `a1ebe7f90a577e9399eaa60be3c67721` | `e1c38f8d660e92ed4c7d7dfe75c91a1c` |
+| JA3 MD5 | `9b7dcdf3f997f1fb7b4409c94cb7ef36` | `a1ebe7f90a577e9399eaa60be3c67721` | (measured, see below) |
 
-`tls_profile.py` aligns ALPN (`h2,http/1.1`) and narrows the cipher list toward
-Go's, which is what stdlib permits. It **cannot** reach parity: Python's public
-SSL API exposes neither the ordered supported-groups list (the Go list carries
-the PQC hybrids `4587`/`4589`; Python's carries P-256/P-384 instead) nor the
-extension order. Those two fields dominate the JA3, so an exact Go fingerprint
+**Critical correction (dhaern review):** agy sends **no ALPN** toward
+`daily-cloudcode-pa.googleapis.com`. The earlier measurement of `h2,http/1.1` was
+from agy talking to `antigravity-unleash.goog` and `play.googleapis.com`, not the
+inference host. Advertising `h2` also **breaks** urllib/http.client (HTTP/1.1
+only) — Google selects h2, then rejects the request. The profile now omits
+ALPN entirely, matching agy on the inference host and keeping requests working.
+
+`tls_profile.py` narrows the cipher list toward Go's (13 suites, Go order) and
+drops extensions agy does not send (`OP_NO_TICKET`, `post_handshake_auth=False`,
+`SSL_OP_NO_ENCRYPT_THEN_MAC`). It **cannot** reach parity: Python's public
+SSL API exposes neither the ordered supported-groups list (Go carries the PQC
+hybrids `4587`/`4589`; Python's carries P-256/P-384 instead) nor the extension
+order. Those two fields dominate the JA3, so an exact Go fingerprint
 is not achievable in stdlib. The profile reduces the observable difference; it
 does not erase it, and it does not change the ToS position (see README
 disclaimer — the OAuth use itself is the violation).

@@ -124,7 +124,9 @@ def _capture_client_hello(ctx):
 # ── Pure: the profile's stated shape ────────────────────────────────
 
 def test_go_alpn_matches_the_measured_go_offer():
-    assert GO_ALPN == ["h2", "http/1.1"]
+    # agy sends NO ALPN toward daily-cloudcode-pa (measured, issue #35).
+    # Advertising h2 would break urllib/http.client (HTTP/1.1 only).
+    assert GO_ALPN == []
 
 
 def test_cipher_list_has_no_legacy_cbc_suites():
@@ -143,7 +145,7 @@ def test_cipher_list_has_no_legacy_cbc_suites():
 def test_profile_facts_pin_the_measured_go_ja3():
     facts = profile_facts()
     assert facts["go_ja3"] == "03117a8ed39ef02427ebbc39f121275c"
-    assert facts["go_alpn"] == "h2,http/1.1"
+    assert facts["go_alpn"] == "(none toward daily-cloudcode-pa)"
     assert facts["go_cipher_count"] == "13"
 
 
@@ -156,17 +158,18 @@ def test_build_ssl_context_keeps_verification_on():
 
 # ── Live capture: the drift detector ────────────────────────────────
 
-def test_tuned_context_offers_h2_alpn():
-    """The tuned context must advertise h2,http/1.1 like the Go client.
+def test_tuned_context_matches_go_alpn():
+    """The tuned context must offer no ALPN, matching agy on the inference host.
 
-    This is the single highest-value alignment stdlib allows: the default
-    context advertises no ALPN (or http/1.1 alone), which is a one-field
-    giveaway. If a future build drops ALPN, this fails loudly.
+    agy sends no ALPN toward daily-cloudcode-pa. Advertising h2 would break
+    urllib/http.client (HTTP/1.1 only) — Google selects h2, then rejects the
+    HTTP/1.1 request. Omitting ALPN entirely is both the safe and the
+    parity-correct choice.
     """
     result = _capture_client_hello(build_ssl_context())
     assert "error" not in result, result.get("error")
-    assert result["alpn"] == ["h2", "http/1.1"], (
-        "the tuned context must offer h2,http/1.1 to match the Go ClientHello")
+    assert result["alpn"] == [], (
+        "the tuned context must offer no ALPN to match agy on the inference host")
 
 
 def test_tuned_context_narrows_the_cipher_count():
