@@ -134,13 +134,18 @@ def capture_client_hello() -> dict:
     t = threading.Thread(target=listener, args=(srv,), daemon=True)
     t.start()
 
-    # Use the plugin's active SSL context (installed by tls_profile)
+    # Use the plugin's active SSL context (from tls_profile). Ensure the repo
+    # root is importable regardless of CWD, so this never silently falls back
+    # to the default context (which would measure the wrong transport).
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
     ctx = ssl.create_default_context()
     try:
         import tls_profile
         ctx = tls_profile.build_ssl_context()
-    except Exception:
-        pass
+    except Exception as exc:
+        captured["error"] = f"tls_profile import failed: {exc}"
+        # keep the default context; the error is reported, not swallowed
 
     c = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:

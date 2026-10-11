@@ -323,8 +323,6 @@ def resolve_session_trajectory(
     The fallback seed is the first message only, so follow-up turns in the
     same process reuse the same trajectory.
     """
-    import json as _json
-
     explicit = str(session_id or "").strip()
     if explicit:
         seed = f"session:{explicit}"
@@ -334,7 +332,7 @@ def resolve_session_trajectory(
         if isinstance(first_msg.get("content"), str):
             content_seed = first_msg["content"][:64]
         elif isinstance(first_msg.get("content"), list) and first_msg["content"]:
-            content_seed = _json.dumps(first_msg["content"][0])[:64]
+            content_seed = json.dumps(first_msg["content"][0])[:64]
         seed = f"{first_msg.get('role', 'user')}:{content_seed}"
     if seed not in _session_trajectory_map:
         _session_trajectory_map[seed] = {

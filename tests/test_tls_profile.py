@@ -129,17 +129,33 @@ def test_go_alpn_matches_the_measured_go_offer():
     assert GO_ALPN == []
 
 
-def test_cipher_list_has_no_legacy_cbc_suites():
-    """The narrowed list must not reintroduce CBC/legacy suites.
+def test_cipher_list_matches_go_order_exactly():
+    """The narrowed list must match the Go cipher order exactly.
 
-    The point is to shrink the cipher-count gap versus Go, so the list stays on
-    AEAD + ECDHE; a CBC suite appearing here is a regression of that intent.
+    The 13 ciphers in GO_CIPHER_LIST are the ones agy offers toward
+    daily-cloudcode-pa (measured). Any addition or removal is a regression.
+    SHA1-CBC suites (ECDHE-ECDSA-AES128-SHA, ECDHE-RSA-AES128-SHA, etc.)
+    are in the Go list too, so this test does NOT exclude them — it pins
+    the exact set.
     """
-    lowered = GO_CIPHER_LIST.lower()
-    assert "-sha:" not in lowered and "-sha256:" not in lowered or "gcm" in lowered
-    assert "3des" not in lowered
-    assert "rc4" not in lowered
-    assert "null" not in lowered
+    ciphers = GO_CIPHER_LIST.split(":")
+    assert len(ciphers) == 13, f"expected 13 ciphers, got {len(ciphers)}"
+    expected = [
+        "TLS_AES_128_GCM_SHA256",
+        "TLS_AES_256_GCM_SHA384",
+        "TLS_CHACHA20_POLY1305_SHA256",
+        "ECDHE-ECDSA-AES128-GCM-SHA256",
+        "ECDHE-RSA-AES128-GCM-SHA256",
+        "ECDHE-ECDSA-AES256-GCM-SHA384",
+        "ECDHE-RSA-AES256-GCM-SHA384",
+        "ECDHE-ECDSA-CHACHA20-POLY1305",
+        "ECDHE-RSA-CHACHA20-POLY1305",
+        "ECDHE-ECDSA-AES128-SHA",
+        "ECDHE-RSA-AES128-SHA",
+        "ECDHE-ECDSA-AES256-SHA",
+        "ECDHE-RSA-AES256-SHA",
+    ]
+    assert ciphers == expected, f"cipher order mismatch: {ciphers}"
 
 
 def test_profile_facts_pin_the_measured_go_ja3():
@@ -176,28 +192,33 @@ def test_tuned_context_narrows_the_cipher_count():
     """Tuning must reduce the offered cipher count versus the stdlib default.
 
     The default context offers 17 suites; the Go client offers 13. Narrowing is
-    the achievable part of the gap. Assert strictly fewer than the default so a
-    regression to the wide default is caught.
+    the achievable part of the gap. Assert exactly 13 so a regression to 14/16
+    is caught, not just a return to the full default.
     """
     default = _capture_client_hello(ssl.create_default_context())
     tuned = _capture_client_hello(build_ssl_context())
     assert "error" not in tuned, tuned.get("error")
+    assert tuned["cipher_count"] == 13, (
+        f"tuned offered {tuned['cipher_count']} ciphers, expected exactly 13")
     assert tuned["cipher_count"] < default["cipher_count"], (
         f"tuned offered {tuned['cipher_count']} ciphers, "
         f"default {default['cipher_count']}: tuning must narrow the list")
 
 
-def test_tuned_ja3_differs_from_default_but_is_stable():
-    """The tuned fingerprint must differ from the default and be reproducible.
+def test_tuned_ja3_differs_from_default_and_is_stable():
+    """The tuned fingerprint must differ from the default AND be reproducible.
 
     We do NOT assert it equals Go (stdlib cannot order supported groups or
     extensions — see tls_profile docstring). We assert it is a deliberate,
     stable change from the default, so the profile is a known quantity rather
     than an accident.
     """
+    default = _capture_client_hello(ssl.create_default_context())
     tuned_a = _capture_client_hello(build_ssl_context())
     tuned_b = _capture_client_hello(build_ssl_context())
     assert "error" not in tuned_a, tuned_a.get("error")
+    assert tuned_a["ja3_md5"] != default["ja3_md5"], (
+        "tuned fingerprint must differ from default")
     assert tuned_a["ja3_md5"] == tuned_b["ja3_md5"], (
         "the tuned ClientHello must be deterministic across connections")
 
@@ -314,17 +335,37 @@ def test_tuned_transport_completes_a_real_http11_request():
     """The tuned transport must complete a real HTTP/1.1 request, not just
     offer a ClientHello.
 
+    Two guards in one test:
+    1. The REAL get_tuned_opener() must carry a context that offers no ALPN
+       (inspect the production object, not a hand-built stand-in — a regression
+       that adds h2 only to get_tuned_opener() must be caught here).
+    2. A real HTTP/1.1 request must complete over that tuned transport.
+
     This is the regression guard for the h2 bug: advertising h2,http/1.1 broke
     every request because urllib/http.client only speaks HTTP/1.1 — Google
     selects h2 via ALPN, then rejects the HTTP/1.1 body. The loopback capture
     test never caught it because the listener closed before ServerHello.
     """
-    import http.client
     import tempfile
     import urllib.request
 
     from tls_profile import get_tuned_opener
 
+    # Guard 1: inspect the REAL production opener's SSL context.
+    opener = get_tuned_opener()
+    prod_ctx = None
+    for handler in opener.handlers:
+        if isinstance(handler, urllib.request.HTTPSHandler):
+            prod_ctx = getattr(handler, "_context", None)
+    assert prod_ctx is not None, "get_tuned_opener must expose an HTTPSHandler context"
+    # set_alpn_protocols stores the value; an unset context reports []. Assert
+    # the production opener advertises no ALPN.
+    assert getattr(prod_ctx, "_alpn_protocols", []) == [], (
+        "get_tuned_opener() must not advertise ALPN (h2 breaks urllib)")
+
+    # Guard 2: a real HTTP/1.1 request completes over the tuned transport.
+    # Use a client context that trusts the self-signed test cert — this relaxes
+    # only verification for the loopback, the ALPN/cipher profile is unchanged.
     with tempfile.TemporaryDirectory() as tmpdir:
         cert, key = _self_signed_cert(tmpdir)
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -335,7 +376,6 @@ def test_tuned_transport_completes_a_real_http11_request():
 
         server = _tls_echo_server(port, cert, key)
         try:
-            # Client side: trust the self-signed cert, use the tuned context.
             client_ctx = build_ssl_context()
             client_ctx.check_hostname = False
             client_ctx.verify_mode = ssl.CERT_NONE
