@@ -166,7 +166,7 @@ def test_clamp_max_tokens_default_ceiling():
 
 
 def test_fetch_available_models_empty_on_failure():
-    with patch("urllib.request.urlopen", side_effect=Exception("network down")):
+    with patch("models.TUNED_OPENER.open", side_effect=Exception("network down")):
         models = fetch_available_models("fake-token", "fake-project")
         assert models == []
 
@@ -427,7 +427,7 @@ def test_fetch_available_models_records_the_enum():
     original_store = models_mod.MODEL_ENUM_STORE
     models_mod.MODEL_ENUM_STORE = Path(tempfile.mkdtemp()) / "enums.json"
     try:
-        with patch("urllib.request.urlopen", return_value=_Resp()):
+        with patch("models.TUNED_OPENER.open", return_value=_Resp()):
             models_mod.fetch_available_models("tok", "proj")
         # enums are recorded even for ids the picker filters out
         assert models_mod.get_model_enum("unrelated-model") == "MODEL_PLACEHOLDER_U1"
