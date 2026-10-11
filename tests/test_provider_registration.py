@@ -146,7 +146,10 @@ def test_auth_quota_status_has_no_bare_imports_under_package_load():
     from pathlib import Path
 
     repo = Path(__file__).resolve().parent.parent
-    hermes_core = Path.home() / ".hermes" / "hermes-agent"
+    # Mirror run_tests.py's resolution: HERMES_CORE env wins, then the local
+    # default. On CI the core is cloned to $HERMES_CORE, not ~/.hermes.
+    core_env = os.environ.get("HERMES_CORE")
+    hermes_core = Path(core_env) if core_env else Path.home() / ".hermes" / "hermes-agent"
 
     child = textwrap.dedent(
         """
