@@ -290,7 +290,6 @@ def _self_signed_cert(tmpdir):
     in CI without adding a package.
     """
     import subprocess
-    import tempfile
 
     key = f"{tmpdir}/key.pem"
     cert = f"{tmpdir}/cert.pem"
