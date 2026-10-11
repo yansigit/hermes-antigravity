@@ -120,3 +120,70 @@ def test_client_imports_as_package_submodule():
     # The package branch must have provided these, not the except fallback.
     assert hasattr(mod, "TUNED_OPENER")
     assert hasattr(mod, "AntigravityClient")
+
+
+def test_auth_quota_status_has_no_bare_imports_under_package_load():
+    """auth._print_quota_status must not fail with a bare-import error.
+
+    Issue #39: auth.py imported `from models import fetch_account_quota` and
+    `import quota as _quota_mod` inside _print_quota_status WITHOUT the
+    try/except ImportError guard the module-level imports use. Under Hermes'
+    package load, those bare imports raise ModuleNotFoundError and the quota
+    line degrades to "quota: unavailable (No module named 'models')".
+
+    The repo-root suite never caught it: run from the repo root, the bare
+    names resolve as top-level modules (and once `models` is in sys.modules,
+    even a stripped sys.path resolves it). Reproduce Hermes' real load in a
+    subprocess: a tempdir holds `antigravity` as a symlink to this repo, that
+    tempdir (NOT the repo root) is on PYTHONPATH, and the quota path is called
+    there.
+    """
+    import os
+    import subprocess
+    import sys as _sys
+    import tempfile
+    import textwrap
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+    hermes_core = Path.home() / ".hermes" / "hermes-agent"
+
+    child = textwrap.dedent(
+        """
+        import sys
+        from unittest.mock import patch
+        import antigravity.auth as auth_mod
+
+        class _Account:
+            account_id = "regression"
+            email = "regression@example.com"
+
+        with patch.object(auth_mod, "AntigravityAuthManager") as mgr:
+            mgr.return_value.get_credentials.return_value = ("tok", "proj")
+            auth_mod._print_quota_status(object(), _Account())
+        """
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg = Path(tmp) / "antigravity"
+        try:
+            pkg.symlink_to(repo, target_is_directory=True)
+        except OSError:
+            # Symlinks unavailable (e.g. Windows without privilege): skip.
+            return
+        env = dict(os.environ)
+        # The tempdir is the package parent; the repo root is deliberately
+        # absent, as it is when Hermes loads the plugin.
+        paths = [tmp]
+        if hermes_core.is_dir():
+            paths.append(str(hermes_core))
+        env["PYTHONPATH"] = os.pathsep.join(paths)
+        proc = subprocess.run(
+            [_sys.executable, "-c", child],
+            capture_output=True, text=True, env=env, timeout=60,
+        )
+
+    combined = proc.stdout + proc.stderr
+    assert "No module named" not in combined, (
+        "auth.py quota path used a bare import under package load "
+        f"(issue #39 regression):\n{combined}")
