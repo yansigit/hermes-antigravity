@@ -88,12 +88,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/experimentsandconfigs",
 ]
 
-# Legacy paths (kept for migration only)
-try:
-    from .accounts import LEGACY_CACHE_FILE
-except ImportError:
-    from accounts import LEGACY_CACHE_FILE
-
 try:
     from .accounts import AntigravityAccountRegistry, AccountRecord
     from .models import DEFAULT_USER_AGENT, TUNED_OPENER

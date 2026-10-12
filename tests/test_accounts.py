@@ -4,7 +4,6 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 
 from accounts import (
@@ -15,8 +14,6 @@ from accounts import (
 
 
 # ── Helpers ─────────────────────────────────────────────────────
-
-LEGACY_PATHS = []
 
 
 def _mkdtemp_outside_hermes(prefix: str = "hermes-home-test-") -> Path:
@@ -34,15 +31,6 @@ def _mkdtemp_outside_hermes(prefix: str = "hermes-home-test-") -> Path:
     if base == hermes_root or hermes_root in base.parents:
         base = Path.home()
     return Path(tempfile.mkdtemp(prefix=prefix, dir=str(base)))
-
-
-def _patched_legacy_paths(tmpdir):
-    """Return a list of patch contexts that disable all legacy paths."""
-    nonexistent = os.path.join(tmpdir, "nonexistent")
-    return [
-        patch(path, Path(nonexistent) / f"nonexistent-{i}.json")
-        for i, path in enumerate(LEGACY_PATHS)
-    ]
 
 
 def _make_registry(tmpdir, filename="registry.json"):
@@ -400,29 +388,18 @@ class TestEdgeCases:
 
 
 def _isolated_registry(emails):
-    """Build a registry isolated from the developer's real ~/.hermes state.
-
-    accounts.py resolves LEGACY_CACHE_FILE at import time, so a legacy auth
-    file on the host machine migrates into the registry under test and shows
-    up as a phantom account. Point it at a missing path while we build.
-    """
+    """Build a registry on a sandbox path, isolated from the host's ~/.hermes."""
     import tempfile
-    import accounts as _accounts_mod
     from accounts import AntigravityAccountRegistry
 
     sandbox = Path(tempfile.mkdtemp())
-    original = _accounts_mod.LEGACY_CACHE_FILE
-    _accounts_mod.LEGACY_CACHE_FILE = sandbox / "no-legacy-auth.json"
-    try:
-        reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
-        for i, email in enumerate(emails):
-            reg.add_account(
-                email=email,
-                credentials={"access_token": f"tok-{i}", "refresh_token": f"ref-{i}",
-                             "expires_at": 9e9},
-            )
-    finally:
-        _accounts_mod.LEGACY_CACHE_FILE = original
+    reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
+    for i, email in enumerate(emails):
+        reg.add_account(
+            email=email,
+            credentials={"access_token": f"tok-{i}", "refresh_token": f"ref-{i}",
+                         "expires_at": 9e9},
+        )
     return reg
 
 
@@ -454,19 +431,13 @@ def test_next_untried_account_returns_none_when_exhausted():
 
 def test_next_untried_account_skips_account_without_usable_token():
     import tempfile
-    import accounts as _accounts_mod
     from accounts import AntigravityAccountRegistry
 
     sandbox = Path(tempfile.mkdtemp())
-    original = _accounts_mod.LEGACY_CACHE_FILE
-    _accounts_mod.LEGACY_CACHE_FILE = sandbox / "no-legacy-auth.json"
-    try:
-        reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
-        reg.add_account(email="dead@x.com", credentials={})
-        reg.add_account(email="live@x.com",
-                        credentials={"access_token": "t", "refresh_token": "r", "expires_at": 9e9})
-    finally:
-        _accounts_mod.LEGACY_CACHE_FILE = original
+    reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
+    reg.add_account(email="dead@x.com", credentials={})
+    reg.add_account(email="live@x.com",
+                    credentials={"access_token": "t", "refresh_token": "r", "expires_at": 9e9})
     nxt = reg.next_untried_account()
     assert nxt is not None
     assert nxt.email == "live@x.com"
