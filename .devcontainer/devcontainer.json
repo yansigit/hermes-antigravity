@@ -1,0 +1,13 @@
+{
+  "name": "hermes-antigravity",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /tmp/hermes-core && HERMES_CORE=/tmp/hermes-core python tools/run_tests.py --collect-only",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ]
+    }
+  }
+}
