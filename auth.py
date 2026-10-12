@@ -67,6 +67,25 @@ def _callback_timeout() -> float:
     except Exception:
         interactive = False
     return 120.0 if interactive else 5.0
+
+
+def _is_port_taken(exc: BaseException) -> bool:
+    """True when a callback bind failed because the port is already held.
+
+    POSIX reports EADDRINUSE (macOS 48, Linux 98) via ``errno``. Windows does
+    not: ``errno`` is POSIX-mapped (13/EACCES) and unreliable here, so the raw
+    WSA code is read from ``winerror`` — 10048 (WSAEADDRINUSE, busy port) or
+    10013 (WSAEACCES, port held with SO_EXCLUSIVEADDRUSE, i.e. a second
+    concurrent login). Either way the user's recovery is identical.
+    """
+    if not isinstance(exc, OSError):
+        return False
+    return (
+        getattr(exc, "errno", None) in (48, 98)
+        or getattr(exc, "winerror", None) in (10048, 10013)
+    )
+
+
 REDIRECT_URI = f"http://localhost:{_CALLBACK_PORT}/oauth-callback"
 
 # Default Google Antigravity Desktop Client Credentials (split base64 to avoid static scanner false positives)
@@ -296,14 +315,7 @@ class AntigravityAuthManager:
             callback_error = exc
 
         if callback_error is not None:
-            port_taken = isinstance(callback_error, OSError) and getattr(
-                callback_error, "errno", None
-            ) in (48, 98, 10048, 10013)
-            # EADDRINUSE on linux(98)/macOS(48)/windows(10048). 10013 = WSAEACCES:
-            # on Windows a port held with SO_EXCLUSIVEADDRUSE (a second concurrent
-            # login) rejects the bind as permission-denied rather than
-            # address-in-use, but the user's fix is identical.
-            if port_taken:
+            if _is_port_taken(callback_error):
                 print(
                     f"\nPort {_CALLBACK_PORT} is already in use by another "
                     "process (probably another login session in progress)."
