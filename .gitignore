@@ -14,3 +14,4 @@ credentials*.json
 .env*
 *.db
 .drift-cache/
+.ruff_cache/
