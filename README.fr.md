@@ -15,7 +15,7 @@ Ce plugin intègre l'infrastructure d'inférence **Google Antigravity / Cloud Co
 Google ne fournit **pas** de clés d'API pour les abonnements grand public ou étudiants (Gemini Pro Étudiant, Gemini Advanced, Google One AI Premium, Google Workspace for Education). Jusqu'à présent, Hermes Agent ne pouvait se connecter à Google que via des clés d'API Google AI Studio (`GOOGLE_API_KEY`) ou Vertex AI, empêchant les titulaires d'abonnements d'utiliser leurs quotas.
 
 Ce plugin résout ce problème : il s'authentifie directement avec votre compte Google via OAuth 2.0 PKCE, débloquant l'ensemble des modèles de votre abonnement dans Hermes Agent sans consommer de tokens payants !
-**Projet de base & provenance :** ce plugin est une adaptation Python de [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) par Rahul Arya ([@Rahularya01](https://github.com/Rahularya01)), ré-architecturée en `ProviderProfile` natif Hermes. **Ce n'est pas un fork du dépôt Pi** — il réimplémente le même protocole wire, le même routage de modèles, la même enveloppe de session, le nettoyage des schémas d'outils, la gestion des thought-signatures et le streaming SSE. Chaque constante wire est suivie dans [`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md), afin qu'une divergence avec l'implémentation de référence reste visible au lieu d'être silencieuse. Voir [Remerciements & Provenance](#-remerciements--provenance-open-source).
+**Provenance :** ce plugin est né comme une adaptation Python de [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) par Rahul Arya ([@Rahularya01](https://github.com/Rahularya01)), ré-architecturée en `ProviderProfile` natif Hermes. Il est aujourd'hui maintenu de façon indépendante : son comportement wire est validé directement contre le CLI officiel Antigravity (empreinte mesurée) et le relay Cloud Code Assist live (découverte live des modèles, quotas, tags de retrait) — et non en suivant les avancées de pi-antigravity. pi-antigravity reste crédité ci-dessous comme le projet pionnier du reverse-engineering. Chaque constante wire est suivie dans [`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md), afin qu'une divergence avec la référence mesurée reste visible au lieu d'être silencieuse. Voir [Remerciements & Provenance](#-remerciements--provenance-open-source).
 
 
 ## 🏗️ Architecture
@@ -165,9 +165,9 @@ secret d'application privé.**
 Un client OAuth « installed app » ne peut pas garder de secret : le binaire l'embarque, la
 valeur est donc publique par nature et sa seule protection est que Google la considère comme
 non confidentielle. Ce plugin embarque le même identifiant client public que l'application
-Antigravity Desktop officielle, à l'octet près identique à
-[`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) (MIT), qui l'a
-rétro-ingénieré depuis le CLI officiel.
+Antigravity Desktop officielle, vérifié de façon indépendante contre le CLI officiel
+(cette valeur a aussi été historiquement documentée par
+[`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) (MIT)).
 
 C'est différent d'un secret d'API, et c'est pourquoi un scanner de secrets peut le signaler :
 
@@ -298,17 +298,15 @@ Le client officiel `agy` est un binaire **Go** ; ce plugin parle TLS via la stdl
 
 ## 🔄 Dérive vis-à-vis de l'amont
 
-Ce plugin est un portage de [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity),
-qui possède le protocole wire que ce plugin réimplémente. L'amont avance ; un portage n'a
-aucun compilateur pour s'en apercevoir.
+Ce plugin parle directement à l'API Cloud Code Assist de Google. Ses références sont le CLI officiel `agy` (empreinte wire, mesurée live) et les réponses du relay live (catalogue de modèles, quotas, tags de retrait) — pas les notes de version d'une réimplémentation tierce. Google avance ; rien ne compile contre lui pour s'en apercevoir.
 
-**[`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md)** liste chaque champ wire, sa valeur de chaque
-côté, et la date de la dernière vérification. Les tests asserteraient le côté portage, donc
-une mise à jour amont se traduit par un test rouge plutôt que par une dégradation silencieuse
+**[`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md)** liste chaque champ wire, sa valeur mesurée,
+et la date de la dernière vérification. Les tests asserteraient le côté plugin, donc
+une évolution du relay ou du CLI se traduit par un test rouge plutôt que par une dégradation silencieuse
 — le mode de défaillance derrière chaque incident réel dans l'historique de ce plugin (une
 empreinte de CLI périmée, un hook de core manquant).
 
-Si vous portez quelque chose depuis l'amont, mettez à jour ce fichier dans la même PR.
+`tools/check_upstream_drift.py` recoupe en plus les constantes du protocole avec le source pi-antigravity comme signal secondaire. Si vous modifiez quelque chose vis-à-vis de la référence, mettez à jour ce fichier dans la même PR.
 
 **Vérification automatisée :**
 
@@ -330,7 +328,9 @@ Le reverse-engineering des endpoints Google Cloud Code Assist (`daily-cloudcode-
 - **Harness d'origine** : Pi Coding Agent ([`@earendil-works/pi`](https://github.com/earendil-works/pi))
 - **Licence d'origine** : Licence MIT
 
-Nous avons adapté, réécrit et intégré ces principes d'architecture dans un plugin Python natif `model-provider` pour **Hermes Agent** (`nousresearch/hermes-agent`). Portés à l'identique depuis le source TypeScript : la table de routage public-vers-runtime, l'enveloppe de session/trajectoire, le nettoyage des schémas d'outils, la gestion des thought-signatures pour Gemini 3+, et le protocole de streaming SSE. Tout le mérite et notre gratitude pour les recherches initiales sur l'API Cloud Code Assist reviennent à Rahul Arya et aux contributeurs de l'écosystème Pi.
+Nous avons adapté, réécrit et intégré ces principes d'architecture dans un plugin Python natif `model-provider` pour **Hermes Agent** (`nousresearch/hermes-agent`). Portés à l'identique depuis le source TypeScript : la table de routage public-vers-runtime, l'enveloppe de session/trajectoire, le nettoyage des schémas d'outils, la gestion des thought-signatures pour Gemini 3+, et le protocole de streaming SSE.
+
+C'était le point de départ. Le plugin est aujourd'hui maintenu indépendamment des avancées de pi-antigravity : l'empreinte wire est mesurée contre le CLI officiel, le catalogue de modèles, les quotas et les signaux de retrait sont lus depuis le relay live, et la validation tourne en CI Linux, macOS et Windows. Tout le mérite et notre gratitude pour les recherches initiales sur l'API Cloud Code Assist reviennent à Rahul Arya et aux contributeurs de l'écosystème Pi.
 
 ---
 

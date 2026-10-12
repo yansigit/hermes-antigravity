@@ -218,8 +218,9 @@ class AntigravityAccountRegistry:
 
         Used when the relay returns a hard quota wall (HTTP 429): retrying the
         same exhausted account only burns the backoff budget, so the caller
-        switches account and retries once. Mirrors pi-antigravity
-        ``failoverToNextAccount``. Accounts without a usable refresh token are
+        switches account and retries once. Same failover discipline as
+        pi-antigravity's ``failoverToNextAccount`` pioneered; implemented here
+        against the relay's 429. Accounts without a usable refresh token are
         skipped rather than handed back, because switching to one cannot
         recover the session.
         """

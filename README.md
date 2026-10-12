@@ -16,7 +16,7 @@ Google does **not** provide API keys for consumer or student subscriptions (Gemi
 
 This plugin solves that problem: it authenticates directly with your Google account via OAuth 2.0 PKCE, unlocking your subscription models in Hermes Agent without burning paid API tokens!
 
-**Base project & provenance:** this plugin is a Python adaptation of the [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) extension for the Pi Coding Agent by Rahul Arya ([@Rahularya01](https://github.com/Rahularya01)), re-architected as a native Hermes `ProviderProfile`. **It is not a fork of the Pi repository** — it reimplements the same wire protocol, model routing, session envelope, tool-schema stripping, thought-signature handling, and SSE streaming against the documented Antigravity behaviour. Every wire constant is tracked in [`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md) so divergence from the reference implementation is visible rather than silent. See [Acknowledgements & Provenance](#-acknowledgements--provenance).
+**Provenance:** this plugin originated as a Python adaptation of the [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) extension for the Pi Coding Agent by Rahul Arya ([@Rahularya01](https://github.com/Rahularya01)), re-architected as a native Hermes `ProviderProfile`. It is now maintained independently: wire behavior is validated directly against the official Antigravity CLI (measured fingerprint) and the live Cloud Code Assist relay (live model discovery, quota, retirement tags) — not by tracking pi-antigravity's advances. pi-antigravity remains credited below as the project that pioneered the reverse-engineering. Every wire constant is tracked in [`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md) so divergence from the measured reference is visible rather than silent. See [Acknowledgements & Provenance](#-acknowledgements--provenance).
 
 
 ## 🏗️ Architecture
@@ -160,7 +160,7 @@ python3 ~/.hermes/plugins/model-providers/antigravity/auth.py
 
 **The default OAuth client is Google's *public* Antigravity desktop client, not a private app secret.**
 
-A desktop "installed app" OAuth client cannot keep a secret: the binary ships with it, so the value is inherently public and its only protection is that Google treats it as non-confidential. This plugin embeds the same public client identifier used by the official Antigravity Desktop app, byte-identical to [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) (MIT), which reverse-engineered it from the official CLI.
+A desktop "installed app" OAuth client cannot keep a secret: the binary ships with it, so the value is inherently public and its only protection is that Google treats it as non-confidential. This plugin embeds the same public client identifier used by the official Antigravity Desktop app, verified independently against the official CLI (the value was also historically documented by [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) (MIT)).
 
 That is different from an API secret, and it is why secret scanners may flag it:
 
@@ -281,16 +281,14 @@ The official `agy` client is a **Go** binary; this plugin speaks TLS through Pyt
 
 ## 🔄 Upstream drift
 
-This plugin is a port of [`pi-antigravity`](https://github.com/Rahularya01/pi-antigravity),
-which owns the wire protocol this plugin reimplements. Upstream moves; a port has no
-compiler to notice.
+This plugin speaks Google's Cloud Code Assist API directly. Its references are the official `agy` CLI (wire fingerprint, measured live) and the live relay responses (model catalog, quota, retirement tags) — not a third-party reimplementation's release notes. Google moves; nothing compiles against it to notice.
 
-**[`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md)** lists every wire field, its value on each side,
-and when it was last checked. Tests assert the port side, so an upstream bump shows up as a
+**[`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md)** lists every wire field, its measured value,
+and when it was last checked. Tests assert the plugin side, so a relay or CLI change shows up as a
 red test rather than a silent degradation — the failure mode behind every real incident in
 this plugin's history (a stale CLI fingerprint, a missing core hook).
 
-If you port something from upstream, update that file in the same PR.
+`tools/check_upstream_drift.py` additionally cross-checks protocol constants against pi-antigravity's source as a secondary signal. If you change anything against the reference, update that file in the same PR.
 
 ## 🙏 Acknowledgements & Provenance
 
@@ -303,7 +301,9 @@ The reverse-engineered protocol wire format, Google Cloud Code Assist endpoint d
 - **Harness**: Pi Coding Agent ([`@earendil-works/pi`](https://github.com/earendil-works/pi))
 - **License**: MIT
 
-We ported, adapted, and re-architected these concepts into a native Python `model-provider` plugin implementing `ProviderProfile` for **Hermes Agent** (`nousresearch/hermes-agent`). Ported 1:1 from the TypeScript source: the public-to-runtime model routing table, the session/trajectory request envelope, the tool-schema stripping, the thought-signature handling for Gemini 3+, and the SSE streaming protocol. All gratitude and credit for the foundational Cloud Code Assist discovery go to Rahul Arya and the Pi open-source community.
+We ported, adapted, and re-architected these concepts into a native Python `model-provider` plugin implementing `ProviderProfile` for **Hermes Agent** (`nousresearch/hermes-agent`). Ported 1:1 from the TypeScript source: the public-to-runtime model routing table, the session/trajectory request envelope, the tool-schema stripping, the thought-signature handling for Gemini 3+, and the SSE streaming protocol.
+
+That was the starting point. The plugin is now maintained independently of pi-antigravity's advances: the wire fingerprint is measured against the official CLI, the model catalog, quota and retirement signals are read from the live relay, and validation runs on Linux, macOS and Windows CI. All gratitude and credit for the foundational Cloud Code Assist discovery go to Rahul Arya and the Pi open-source community.
 
 ---
 

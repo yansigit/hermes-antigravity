@@ -1,7 +1,9 @@
 """Quota measurement for Google Antigravity accounts in Hermes Agent.
 
-Ported from Rahul Arya's pi-antigravity (https://github.com/Rahularya01/pi-antigravity,
-MIT License), src/usage/usage.ts and src/types/types.ts.
+The parsing approach was pioneered by Rahul Arya's pi-antigravity
+(https://github.com/Rahularya01/pi-antigravity, MIT License),
+src/usage/usage.ts and src/types/types.ts; this module is now maintained
+independently against the live relay's quota responses.
 
 Google already returns per-model quota on the endpoint this plugin calls for
 discovery (``v1internal:fetchAvailableModels``). Before this module the data was
