@@ -25,7 +25,6 @@ import time
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -68,6 +67,25 @@ def _callback_timeout() -> float:
     except Exception:
         interactive = False
     return 120.0 if interactive else 5.0
+
+
+def _is_port_taken(exc: BaseException) -> bool:
+    """True when a callback bind failed because the port is already held.
+
+    POSIX reports EADDRINUSE (macOS 48, Linux 98) via ``errno``. Windows does
+    not: ``errno`` is POSIX-mapped (13/EACCES) and unreliable here, so the raw
+    WSA code is read from ``winerror`` — 10048 (WSAEADDRINUSE, busy port) or
+    10013 (WSAEACCES, port held with SO_EXCLUSIVEADDRUSE, i.e. a second
+    concurrent login). Either way the user's recovery is identical.
+    """
+    if not isinstance(exc, OSError):
+        return False
+    return (
+        getattr(exc, "errno", None) in (48, 98)
+        or getattr(exc, "winerror", None) in (10048, 10013)
+    )
+
+
 REDIRECT_URI = f"http://localhost:{_CALLBACK_PORT}/oauth-callback"
 
 # Default Google Antigravity Desktop Client Credentials (split base64 to avoid static scanner false positives)
@@ -87,12 +105,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/cclog",
     "https://www.googleapis.com/auth/experimentsandconfigs",
 ]
-
-# Legacy paths (kept for migration only)
-try:
-    from .accounts import LEGACY_CACHE_FILE
-except ImportError:
-    from accounts import LEGACY_CACHE_FILE
 
 try:
     from .accounts import AntigravityAccountRegistry, AccountRecord
@@ -131,100 +143,8 @@ def extract_project_id(data: dict[str, Any]) -> str | None:
     return None
 
 
-def load_local_token(cache_paths: list[str | Path] | None = None) -> dict[str, Any] | None:
-    """Check known local token locations on this machine (legacy single-account format).
-
-    DEPRECATED: Use AntigravityAccountRegistry instead. This function is kept for
-    backward compatibility and migration purposes only.
-    """
-    candidates = cache_paths or [
-        LEGACY_CACHE_FILE,
-        Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token",
-        Path.home() / ".pi" / "agent" / "auth.json",
-    ]
-
-    # Check env vars first
-    env_token = os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_OAUTH_TOKEN")
-    if env_token:
-        return {
-            "access_token": env_token,
-            "refresh_token": os.environ.get("ANTIGRAVITY_REFRESH_TOKEN", ""),
-            "expires_at": time.time() + 3600,
-            "project_id": os.environ.get("ANTIGRAVITY_PROJECT_ID", "antigravity-env-project"),
-        }
-
-    for path in candidates:
-        p = Path(path).expanduser()
-        if not p.is_file():
-            continue
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if not content:
-                    continue
-                data = json.loads(content)
-                if isinstance(data, dict):
-                    # Check if token is nested in 'token' or 'antigravity'
-                    target_dict = data
-                    if "antigravity" in data and isinstance(data["antigravity"], dict):
-                        target_dict = data["antigravity"]
-
-                    tok_val = target_dict.get("token") or target_dict.get("access_token")
-                    if isinstance(tok_val, dict):
-                        at = tok_val.get("access_token") or tok_val.get("token")
-                        rt = tok_val.get("refresh_token") or target_dict.get("refresh_token", "")
-                        proj = extract_project_id(tok_val) or extract_project_id(target_dict) or "antigravity-default"
-                        raw_exp = tok_val.get("expires_at") or tok_val.get("expiry") or target_dict.get("expires_at") or target_dict.get("expiry")
-                        exp_ts = 0.0
-                        if isinstance(raw_exp, (int, float)):
-                            exp_ts = float(raw_exp)
-                        elif isinstance(raw_exp, str) and raw_exp:
-                            try:
-                                from datetime import datetime
-                                exp_clean = raw_exp[:19]
-                                dt = datetime.fromisoformat(exp_clean)
-                                exp_ts = dt.timestamp()
-                            except Exception:
-                                exp_ts = 0.0
-                        else:
-                            exp_ts = time.time() + 3600
-
-                        if at:
-                            return {
-                                "access_token": at,
-                                "refresh_token": rt,
-                                "expires_at": exp_ts,
-                                "project_id": proj,
-                            }
-                    elif isinstance(tok_val, str) and tok_val.strip():
-                        rt = target_dict.get("refresh_token", "")
-                        proj = extract_project_id(target_dict) or "antigravity-default"
-                        return {
-                            "access_token": tok_val.strip(),
-                            "refresh_token": rt,
-                            "expires_at": time.time() + 3600,
-                            "project_id": proj,
-                        }
-        except Exception as exc:
-            logger.debug("Failed reading credential candidate %s: %s", p, exc)
-            continue
-
-    return None
 
 
-def save_token_cache(data: dict[str, Any], cache_path: Path | str = LEGACY_CACHE_FILE) -> None:
-    """Save credentials to disk with 0600 permissions (legacy single-account format).
-
-    DEPRECATED: Use AntigravityAccountRegistry.add_account() instead.
-    """
-    p = Path(cache_path).expanduser()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    try:
-        os.chmod(p, 0o600)
-    except Exception:
-        pass
 
 
 class _OAuthCallbackHandler(BaseHTTPRequestHandler):
@@ -283,27 +203,15 @@ class AntigravityAuthManager:
 
     def _load_from_registry(self, auto_migrate: bool = True) -> None:
         """Load credentials from the account registry."""
+        del auto_migrate
         account = self._registry.get_account(self._account_id)
         if account:
             self._account_record = account
             self.credentials = account.credentials
             self._account_id = account.account_id
         else:
-            # Fallback: try legacy single-account format
-            if auto_migrate:
-                legacy = load_local_token()
-                if legacy:
-                    self.credentials = legacy
-                    # Auto-migrate to registry
-                    self._account_record = self._registry.add_account(
-                        email="migrated@legacy",
-                        credentials=legacy,
-                    )
-                    self._account_id = self._account_record.account_id
-                else:
-                    self.credentials = {}
-            else:
-                self.credentials = {}
+            # Hermes onboarding is the only credential source; never read other tools.
+            self.credentials = {}
 
     @property
     def email(self) -> str | None:
@@ -407,10 +315,7 @@ class AntigravityAuthManager:
             callback_error = exc
 
         if callback_error is not None:
-            port_taken = isinstance(callback_error, OSError) and getattr(
-                callback_error, "errno", None
-            ) in (48, 98, 10048)  # EADDRINUSE on linux / macOS / windows
-            if port_taken:
+            if _is_port_taken(callback_error):
                 print(
                     f"\nPort {_CALLBACK_PORT} is already in use by another "
                     "process (probably another login session in progress)."

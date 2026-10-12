@@ -441,3 +441,45 @@ def test_fetch_available_models_records_the_enum():
     finally:
         models_mod.MODEL_ENUM_STORE = original_store
         _reset_model_enum_cache()
+
+
+def test_fetch_available_models_skips_leaving_soon_but_keeps_notice():
+    """The relay marks retiring models with tagTitle 'Leaving Soon'.
+
+    Discovery must drop them (Google deprecated them) while keeping models
+    with an informational tag like 'Notice'. Enums are still registered for
+    both, so a routing override can request a filtered-out id.
+    """
+    import tempfile
+    import json as _json
+    import models as models_mod
+
+    payload = {"models": {
+        "gemini-3.6-flash-low": {"model": "MODEL_PLACEHOLDER_OLD",
+                                 "tagTitle": "Leaving Soon",
+                                 "tagDescription": "Start using Gemini 3.8 Flash."},
+        "claude-sonnet-4-6": {"model": "MODEL_PLACEHOLDER_NEW",
+                               "tagTitle": "Notice",
+                               "tagDescription": "Plan change notice."},
+        "gemini-3.8-flash-low": {"model": "MODEL_PLACEHOLDER_CUR"},
+    }}
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return _json.dumps(payload).encode("utf-8")
+
+    _reset_model_enum_cache()
+    original_store = models_mod.MODEL_ENUM_STORE
+    models_mod.MODEL_ENUM_STORE = Path(tempfile.mkdtemp()) / "enums.json"
+    try:
+        with patch("models.TUNED_OPENER.open", return_value=_Resp()):
+            discovered = models_mod.fetch_available_models("tok", "proj")
+        assert "gemini-3.6-flash-low" not in discovered
+        assert "claude-sonnet-4-6" in discovered
+        assert "gemini-3.8-flash-low" in discovered
+        # enums recorded even for the filtered-out id
+        assert models_mod.get_model_enum("gemini-3.6-flash-low") == "MODEL_PLACEHOLDER_OLD"
+    finally:
+        models_mod.MODEL_ENUM_STORE = original_store
+        _reset_model_enum_cache()

@@ -7,7 +7,20 @@ on:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # fail-fast: false so a Windows/macOS failure does not cancel the other
+      # OSes — cross-platform validation wants all three results, not the first.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        # bash on every OS: the run steps use POSIX syntax ($(...),
+        # >> "$GITHUB_ENV"). Windows' default pwsh would break them; git bash
+        # ships on the windows runner.
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -36,22 +49,23 @@ jobs:
         # the same MODULES list and the same collector the run uses, so the two
         # cannot drift apart (a hand-maintained copy once missed a whole module
         # and every Test* class).
+        #
+        # No PYTHONPATH here: run_tests.py::_ensure_paths() inserts HERMES_CORE
+        # and the repo root into sys.path itself. That is also what keeps this
+        # cross-platform — a POSIX ":" PYTHONPATH separator breaks on Windows
+        # (it needs ";"). `python` (not `python3`) is used for the same reason.
         id: collect
-        env:
-          PYTHONPATH: ".:${{ env.HERMES_CORE }}"
         run: |
-          count=$(python3 tools/run_tests.py --collect-only)
+          count=$(python tools/run_tests.py --collect-only)
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "collected $count tests"
 
       - name: Run test suite
-        env:
-          PYTHONPATH: ".:${{ env.HERMES_CORE }}"
-        run: python3 tools/run_tests.py --min-tests "${{ steps.collect.outputs.count }}"
+        run: python tools/run_tests.py --min-tests "${{ steps.collect.outputs.count }}"
 
       - name: Lint
         run: |
-          python3 -m pip install --quiet ruff
+          python -m pip install --quiet ruff
           ruff check .
 
   drift:

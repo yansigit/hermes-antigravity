@@ -4,7 +4,6 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 
 from accounts import (
@@ -15,12 +14,6 @@ from accounts import (
 
 
 # ── Helpers ─────────────────────────────────────────────────────
-
-LEGACY_PATHS = [
-    "accounts.LEGACY_CACHE_FILE",
-    "accounts.LEGACY_PI_AUTH",
-    "accounts.LEGACY_GEMINI_TOKEN",
-]
 
 
 def _mkdtemp_outside_hermes(prefix: str = "hermes-home-test-") -> Path:
@@ -40,24 +33,11 @@ def _mkdtemp_outside_hermes(prefix: str = "hermes-home-test-") -> Path:
     return Path(tempfile.mkdtemp(prefix=prefix, dir=str(base)))
 
 
-def _patched_legacy_paths(tmpdir):
-    """Return a list of patch contexts that disable all legacy paths."""
-    nonexistent = os.path.join(tmpdir, "nonexistent")
-    return [
-        patch(path, Path(nonexistent) / f"nonexistent-{i}.json")
-        for i, path in enumerate(LEGACY_PATHS)
-    ]
-
-
 def _make_registry(tmpdir, filename="registry.json"):
-    """Create a registry instance with legacy paths disabled."""
+    """Create a registry instance."""
     path = os.path.join(tmpdir, filename)
-    patches = _patched_legacy_paths(tmpdir)
-    for p in patches:
-        p.start()
     reg = AntigravityAccountRegistry(registry_path=path)
-    # Don't stop patches — keep them active for registry lifetime
-    return reg, patches
+    return reg, []
 
 
 # ── Unit tests (no registry needed) ─────────────────────────────
@@ -290,8 +270,8 @@ class TestAntigravityAccountRegistry:
             assert len(accounts) == 3
             assert accounts[0].email == "alice@example.com"
 
-    def test_migrate_legacy_single_account(self):
-        """Legacy single-account format should be migrated on first load."""
+    def test_no_legacy_migration_from_local_file(self):
+        """No legacy token files are read or migrated into the registry."""
         with tempfile.TemporaryDirectory() as tmpdir:
             legacy_path = os.path.join(tmpdir, "legacy-auth.json")
             legacy_data = {
@@ -303,21 +283,13 @@ class TestAntigravityAccountRegistry:
             with open(legacy_path, "w") as f:
                 json.dump(legacy_data, f)
 
-            # Only patch the primary legacy file; others to nonexistent
-            with patch("accounts.LEGACY_CACHE_FILE", Path(legacy_path)):
-                with patch("accounts.LEGACY_PI_AUTH", Path(tmpdir) / "nonexistent-pi.json"):
-                    with patch("accounts.LEGACY_GEMINI_TOKEN", Path(tmpdir) / "nonexistent-gem.json"):
-                        registry_path = os.path.join(tmpdir, "registry.json")
-                        reg = AntigravityAccountRegistry(registry_path=registry_path)
-
-            assert reg.account_count == 1
-            acc = reg.get_account()
-            assert acc is not None
-            assert acc.credentials["access_token"] == "legacy-access-token"
-            assert acc.email == "migrated@legacy"
+            registry_path = os.path.join(tmpdir, "registry.json")
+            reg = AntigravityAccountRegistry(registry_path=registry_path)
+            assert reg.account_count == 0
+            assert reg.get_account() is None
 
             reg2 = AntigravityAccountRegistry(registry_path=registry_path)
-            assert reg2.account_count == 1
+            assert reg2.account_count == 0
 
     def test_version_mismatch_triggers_migration(self):
         """Loading a registry with wrong version should trigger migration."""
@@ -326,27 +298,21 @@ class TestAntigravityAccountRegistry:
             with open(registry_path, "w") as f:
                 json.dump({"version": 1, "active_account": None, "accounts": {}}, f)
 
-            with patch("accounts.LEGACY_CACHE_FILE", Path(tmpdir) / "nonexistent.json"):
-                with patch("accounts.LEGACY_PI_AUTH", Path(tmpdir) / "nonexistent2.json"):
-                    with patch("accounts.LEGACY_GEMINI_TOKEN", Path(tmpdir) / "nonexistent3.json"):
-                        reg = AntigravityAccountRegistry(registry_path=registry_path)
+            reg = AntigravityAccountRegistry(registry_path=registry_path)
 
             assert reg.account_count == 0
 
     def test_concurrent_access_safety(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "registry.json")
-            with patch("accounts.LEGACY_CACHE_FILE", Path(tmpdir) / "nonexistent.json"):
-                with patch("accounts.LEGACY_PI_AUTH", Path(tmpdir) / "nonexistent2.json"):
-                    with patch("accounts.LEGACY_GEMINI_TOKEN", Path(tmpdir) / "nonexistent3.json"):
-                        reg1 = AntigravityAccountRegistry(registry_path=path)
-                        reg1.add_account(email="alice@example.com", credentials={"access_token": "a"})
+            reg1 = AntigravityAccountRegistry(registry_path=path)
+            reg1.add_account(email="alice@example.com", credentials={"access_token": "a"})
 
-                        reg2 = AntigravityAccountRegistry(registry_path=path)
-                        reg2.add_account(email="bob@example.com", credentials={"access_token": "b"})
+            reg2 = AntigravityAccountRegistry(registry_path=path)
+            reg2.add_account(email="bob@example.com", credentials={"access_token": "b"})
 
-                        reg3 = AntigravityAccountRegistry(registry_path=path)
-                        assert reg3.account_count == 2
+            reg3 = AntigravityAccountRegistry(registry_path=path)
+            assert reg3.account_count == 2
 
     def test_registry_file_permissions(self):
         # POSIX mode bits do not exist on Windows (chmod is a no-op there), so
@@ -370,11 +336,8 @@ class TestEdgeCases:
             with open(path, "w") as f:
                 f.write("")
 
-            with patch("accounts.LEGACY_CACHE_FILE", Path(tmpdir) / "nonexistent.json"):
-                with patch("accounts.LEGACY_PI_AUTH", Path(tmpdir) / "nonexistent2.json"):
-                    with patch("accounts.LEGACY_GEMINI_TOKEN", Path(tmpdir) / "nonexistent3.json"):
-                        reg = AntigravityAccountRegistry(registry_path=path)
-                        assert reg.account_count == 0
+            reg = AntigravityAccountRegistry(registry_path=path)
+            assert reg.account_count == 0
 
     def test_corrupted_registry_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -382,11 +345,8 @@ class TestEdgeCases:
             with open(path, "w") as f:
                 f.write("{not valid json")
 
-            with patch("accounts.LEGACY_CACHE_FILE", Path(tmpdir) / "nonexistent.json"):
-                with patch("accounts.LEGACY_PI_AUTH", Path(tmpdir) / "nonexistent2.json"):
-                    with patch("accounts.LEGACY_GEMINI_TOKEN", Path(tmpdir) / "nonexistent3.json"):
-                        reg = AntigravityAccountRegistry(registry_path=path)
-                        assert reg.account_count == 0
+            reg = AntigravityAccountRegistry(registry_path=path)
+            assert reg.account_count == 0
 
     def test_add_account_same_email_updates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -428,29 +388,18 @@ class TestEdgeCases:
 
 
 def _isolated_registry(emails):
-    """Build a registry isolated from the developer's real ~/.hermes state.
-
-    accounts.py resolves LEGACY_CACHE_FILE at import time, so a legacy auth
-    file on the host machine migrates into the registry under test and shows
-    up as a phantom account. Point it at a missing path while we build.
-    """
+    """Build a registry on a sandbox path, isolated from the host's ~/.hermes."""
     import tempfile
-    import accounts as _accounts_mod
     from accounts import AntigravityAccountRegistry
 
     sandbox = Path(tempfile.mkdtemp())
-    original = _accounts_mod.LEGACY_CACHE_FILE
-    _accounts_mod.LEGACY_CACHE_FILE = sandbox / "no-legacy-auth.json"
-    try:
-        reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
-        for i, email in enumerate(emails):
-            reg.add_account(
-                email=email,
-                credentials={"access_token": f"tok-{i}", "refresh_token": f"ref-{i}",
-                             "expires_at": 9e9},
-            )
-    finally:
-        _accounts_mod.LEGACY_CACHE_FILE = original
+    reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
+    for i, email in enumerate(emails):
+        reg.add_account(
+            email=email,
+            credentials={"access_token": f"tok-{i}", "refresh_token": f"ref-{i}",
+                         "expires_at": 9e9},
+        )
     return reg
 
 
@@ -482,19 +431,13 @@ def test_next_untried_account_returns_none_when_exhausted():
 
 def test_next_untried_account_skips_account_without_usable_token():
     import tempfile
-    import accounts as _accounts_mod
     from accounts import AntigravityAccountRegistry
 
     sandbox = Path(tempfile.mkdtemp())
-    original = _accounts_mod.LEGACY_CACHE_FILE
-    _accounts_mod.LEGACY_CACHE_FILE = sandbox / "no-legacy-auth.json"
-    try:
-        reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
-        reg.add_account(email="dead@x.com", credentials={})
-        reg.add_account(email="live@x.com",
-                        credentials={"access_token": "t", "refresh_token": "r", "expires_at": 9e9})
-    finally:
-        _accounts_mod.LEGACY_CACHE_FILE = original
+    reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
+    reg.add_account(email="dead@x.com", credentials={})
+    reg.add_account(email="live@x.com",
+                    credentials={"access_token": "t", "refresh_token": "r", "expires_at": 9e9})
     nxt = reg.next_untried_account()
     assert nxt is not None
     assert nxt.email == "live@x.com"
@@ -544,10 +487,7 @@ def test_registry_paths_follow_hermes_home():
         assert accounts.HERMES_ROOT == accounts._hermes_home()
         assert accounts.HERMES_ROOT == sandbox
         assert accounts.DEFAULT_REGISTRY_PATH == sandbox / "antigravity-accounts.json"
-        assert accounts.LEGACY_CACHE_FILE == sandbox / "antigravity-auth.json"
 
-        assert auth.LEGACY_CACHE_FILE == sandbox / "antigravity-auth.json", (
-            "auth.py must share the same HERMES_HOME resolution as accounts.py")
     finally:
         if previous is None:
             os.environ.pop("HERMES_HOME", None)

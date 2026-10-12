@@ -1,10 +1,7 @@
 import os
-import tempfile
 from unittest.mock import patch
 from auth import (
     generate_pkce,
-    load_local_token,
-    save_token_cache,
     extract_project_id,
     AntigravityAuthManager,
 )
@@ -22,23 +19,6 @@ def test_extract_project_id():
     assert extract_project_id({"cloudaicompanionProject": "proj-456"}) == "proj-456"
     assert extract_project_id({"antigravityProjectId": "proj-789"}) == "proj-789"
     assert extract_project_id({"nested": {"id": "p1"}}) is None
-
-
-def test_save_and_load_token_cache():
-    with patch.dict(os.environ, {}, clear=True):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = os.path.join(tmpdir, "antigravity-auth.json")
-            data = {
-                "access_token": "mock-access-token-123",
-                "refresh_token": "mock-refresh-token-456",
-                "expires_at": 9999999999.0,
-                "project_id": "test-project-001",
-            }
-            save_token_cache(data, cache_path=cache_path)
-
-            loaded = load_local_token(cache_paths=[cache_path])
-            assert loaded["access_token"] == "mock-access-token-123"
-            assert loaded["project_id"] == "test-project-001"
 
 
 def test_auth_manager_get_valid_token_cached():
@@ -129,6 +109,39 @@ def test_busy_callback_port_is_reported_with_its_reason():
         f"the taken port must be named in the message; got: {output!r}")
     assert "already in use" in output, (
         f"the message must say the port is in use; got: {output!r}")
+
+
+def test_is_port_taken_recognizes_posix_and_windows_error_codes():
+    """_is_port_taken reads POSIX errno and Windows winerror.
+
+    The callback bind fails as EADDRINUSE on POSIX (macOS 48, Linux 98), but on
+    Windows a busy port surfaces as WSAEADDRINUSE (10048) or WSAEACCES (10013,
+    port held with SO_EXCLUSIVEADDRUSE) in ``winerror`` — ``errno`` is
+    POSIX-mapped there (13/EACCES) and cannot be trusted. Runs on every OS so
+    the Windows branch is protected outside Windows too.
+    """
+    import auth as auth_mod
+
+    def _oserror(errno=None, winerror=None):
+        exc = OSError()
+        if errno is not None:
+            exc.errno = errno
+        if winerror is not None:
+            exc.winerror = winerror  # type: ignore[attr-defined]  # Windows-only
+        return exc
+
+    # POSIX EADDRINUSE.
+    assert auth_mod._is_port_taken(_oserror(errno=98)) is True  # Linux
+    assert auth_mod._is_port_taken(_oserror(errno=48)) is True  # macOS
+    # Windows: busy port and exclusively-held port, via winerror.
+    assert auth_mod._is_port_taken(_oserror(winerror=10048)) is True  # WSAEADDRINUSE
+    assert auth_mod._is_port_taken(_oserror(winerror=10013)) is True  # WSAEACCES
+    # A bare EACCES errno (13) must NOT match — on Windows the signal is
+    # winerror, not the POSIX-mapped errno.
+    assert auth_mod._is_port_taken(_oserror(errno=13)) is False
+    # Unrelated failures.
+    assert auth_mod._is_port_taken(_oserror(errno=2)) is False  # ENOENT
+    assert auth_mod._is_port_taken(ValueError("nope")) is False
 
 
 def test_callback_timeout_is_short_without_a_terminal():

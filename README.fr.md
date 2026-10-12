@@ -67,7 +67,7 @@ Ce plugin résout ce problème : il s'authentifie directement avec votre compte 
 - **Streaming natif & Thinking** : support du flux Server-Sent Events (SSE) avec affichage en direct des réflexions (`reasoning_content`) dans la TUI et la Gateway Hermes.
 - **Tool Calling bidirectionnel** : conversion transparente des déclarations d'outils et des appels de fonction.
 - **Authentification Hybride** :
-  - Détection automatique des sessions locales existantes (`~/.gemini/antigravity-cli/antigravity-oauth-token`, `~/.pi/agent/auth.json`).
+  - Onboarding de compte via la surface d'authentification Hermes (`hermes auth add antigravity` et `hermes auth remove antigravity`).
   - Flux interactif Google OAuth 2.0 PKCE avec serveur de callback local (`http://localhost:51121/oauth-callback`) ou saisie manuelle en mode headless.
   - Rafraîchissement automatique des jetons d'accès avant expiration.
 - **Intégration native dans `hermes model` & `/model`** :

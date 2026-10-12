@@ -7,6 +7,7 @@ three RPCs are aggregated, that a gated quota-summary 403 does not sink the
 per-model quota, and that quotaInfo is no longer discarded.
 """
 import json as _json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ from quota import (
     progress_bar,
     best_model_row,
     quota_is_low,
+    quota_low_threshold,
     format_quota_report,
 )
 
@@ -92,6 +94,16 @@ def test_parse_model_quota_missing_quota_info_is_unknown_not_zero():
     row = parse_model_quota("gemini-2.5-pro", {"displayName": "Pro"})
     assert row["remainingFraction"] is None
 
+
+def test_parse_model_quota_marks_leaving_soon():
+    """The relay's tagTitle 'Leaving Soon' marks a retiring model; any other
+    tag (or none) is not a retirement."""
+    retiring = parse_model_quota("gemini-3.6-flash-low", {"tagTitle": "Leaving Soon"})
+    assert retiring is not None and retiring["leavingSoon"] is True
+    notice = parse_model_quota("claude-sonnet-4-6", {"tagTitle": "Notice"})
+    assert notice is not None and notice["leavingSoon"] is False
+    untagged = parse_model_quota("gemini-3.8-flash-low", {})
+    assert untagged is not None and untagged["leavingSoon"] is False
 
 def test_parse_models_quota_sorts_and_filters():
     data = {"models": {
@@ -344,6 +356,53 @@ def test_quota_is_low_unknown_is_never_low():
     assert quota_is_low(None) is False
     assert quota_is_low({}) is False
     assert quota_is_low({"remainingFraction": None}) is False
+
+
+def test_quota_low_threshold_default_and_env():
+    """The warn threshold defaults to 20%, honours ANTIGRAVITY_QUOTA_WARN_AT,
+    clamps to [0,1], and falls back to the default on a bad value."""
+    with patch.dict(os.environ):
+        os.environ.pop("ANTIGRAVITY_QUOTA_WARN_AT", None)
+        assert quota_low_threshold() == 0.20
+    with patch.dict(os.environ, {"ANTIGRAVITY_QUOTA_WARN_AT": "0.35"}):
+        assert quota_low_threshold() == 0.35
+    with patch.dict(os.environ, {"ANTIGRAVITY_QUOTA_WARN_AT": "1.5"}):
+        assert quota_low_threshold() == 1.0
+    with patch.dict(os.environ, {"ANTIGRAVITY_QUOTA_WARN_AT": "-1"}):
+        assert quota_low_threshold() == 0.0
+    with patch.dict(os.environ, {"ANTIGRAVITY_QUOTA_WARN_AT": "not-a-number"}):
+        assert quota_low_threshold() == 0.20
+
+
+def test_format_quota_report_marks_low_models():
+    """A model below the warn threshold is flagged LOW; exhausted keeps its own
+    flag; a healthy model is not flagged; a retiring model is flagged LEAVING."""
+    models = [
+        {"modelId": "m-low", "remainingFraction": 0.10, "resetTime": None,
+         "isExhausted": False, "displayName": "Low", "supportsThinking": False,
+         "supportsImages": False, "recommended": False, "leavingSoon": False},
+        {"modelId": "m-exhausted", "remainingFraction": 0.0, "resetTime": None,
+         "isExhausted": True, "displayName": "Exhausted", "supportsThinking": False,
+         "supportsImages": False, "recommended": False, "leavingSoon": False},
+        {"modelId": "m-healthy", "remainingFraction": 0.5, "resetTime": None,
+         "isExhausted": False, "displayName": "Healthy", "supportsThinking": False,
+         "supportsImages": False, "recommended": False, "leavingSoon": False},
+        {"modelId": "m-retiring", "remainingFraction": 0.5, "resetTime": None,
+         "isExhausted": False, "displayName": "Retiring", "supportsThinking": False,
+         "supportsImages": False, "recommended": False, "leavingSoon": True},
+    ]
+    with patch.dict(os.environ):
+        os.environ.pop("ANTIGRAVITY_QUOTA_WARN_AT", None)
+        report = format_quota_report("me@example.com", None, [], models, None, 0.0)
+    lines = report.splitlines()
+    low_line = next(line for line in lines if "m-low" in line)
+    exhausted_line = next(line for line in lines if "m-exhausted" in line)
+    healthy_line = next(line for line in lines if "m-healthy" in line)
+    retiring_line = next(line for line in lines if "m-retiring" in line)
+    assert "LOW" in low_line
+    assert "exhausted" in exhausted_line and "LOW" not in exhausted_line
+    assert "LOW" not in healthy_line
+    assert "LEAVING" in retiring_line and "LOW" not in retiring_line
 
 
 # ── report formatting ──────────────────────────────────────────────────────
@@ -648,6 +707,33 @@ def test_proactive_switch_survives_a_quota_probe_failure():
 
     assert token is None
     assert reg.active_account_id == before, "a failed probe must not move the account"
+
+
+def test_proactive_switch_warns_without_switching_when_low():
+    """A low-but-nonempty bucket must warn, not switch: the account keeps its
+    request and the 429 backstop stays the safety net."""
+    import tempfile
+    from pathlib import Path
+
+    sandbox = Path(tempfile.mkdtemp())
+    reg = _two_account_registry(sandbox)
+    client = _client_for(reg)
+    before = reg.active_account_id
+
+    low_snap = _snapshot([
+        {"modelId": "gemini-3.8-flash-low", "remainingFraction": 0.10,
+         "resetTime": None, "isExhausted": False, "displayName": None,
+         "supportsThinking": False, "supportsImages": False, "recommended": False}])
+
+    with patch.dict(os.environ):
+        os.environ.pop("ANTIGRAVITY_QUOTA_WARN_AT", None)
+        with patch("client.fetch_account_quota", return_value=low_snap), \
+             patch("client.logger.warning") as warn:
+            token = client._switch_account_if_quota_low("gemini-3.8-flash-low", set())
+
+    assert token is None, "a low (not empty) bucket must not switch accounts"
+    assert reg.active_account_id == before, "the account must be kept"
+    assert warn.called, "a low bucket must emit a warning"
 
 
 def test_generate_uses_switched_token_when_quota_empty():

@@ -22,6 +22,7 @@ low fraction on one row does not mean that model alone is nearly exhausted.
 from __future__ import annotations
 
 import math
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -144,6 +145,7 @@ def parse_model_quota(model_id: str, info: Any) -> dict[str, Any] | None:
     display_name = _as_str(info.get("displayName"))
     label = _as_str(info.get("label"))
     model_name = _as_str(info.get("modelName"))
+    tag = info.get("tagTitle")
     return {
         "modelId": model_id,
         "displayName": display_name or label or model_name,
@@ -153,6 +155,10 @@ def parse_model_quota(model_id: str, info: Any) -> dict[str, Any] | None:
         "supportsThinking": _as_bool(info.get("supportsThinking")),
         "supportsImages": _as_bool(info.get("supportsImages")),
         "recommended": _as_bool(info.get("recommended")),
+        # The relay marks models Google is retiring with tagTitle 'Leaving
+        # Soon'. Surfaced so the quota report can flag them; discovery itself
+        # already drops them (models.py).
+        "leavingSoon": isinstance(tag, str) and "leaving" in tag.lower(),
     }
 
 
@@ -303,6 +309,25 @@ def quota_is_low(row: dict[str, Any] | None, threshold: float = 0.0) -> bool:
     return float(remaining) <= threshold
 
 
+def quota_low_threshold() -> float:
+    """Remaining fraction below which quota is 'approaching the wall' (warn).
+
+    The proactive switch still only moves off an *empty* bucket (quota_is_low
+    at its 0.0 default); this higher threshold drives the earlier warning so an
+    operator can add an account before a 429 burns a round-trip. Configurable
+    via ANTIGRAVITY_QUOTA_WARN_AT (a fraction, e.g. 0.2 = 20%); an unparseable
+    or out-of-range value falls back to the default rather than raising.
+    """
+    raw = os.environ.get("ANTIGRAVITY_QUOTA_WARN_AT")
+    if raw is None:
+        return 0.20
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.20
+    return min(1.0, max(0.0, value))
+
+
 # ── Formatting ─────────────────────────────────────────────────────────────
 
 
@@ -359,6 +384,9 @@ def format_quota_report(
                 "thinking" if row.get("supportsThinking") else "",
                 "images" if row.get("supportsImages") else "",
                 "exhausted" if row.get("isExhausted") else "",
+                "LOW" if (quota_is_low(row, threshold=quota_low_threshold())
+                          and not row.get("isExhausted")) else "",
+                "LEAVING" if row.get("leavingSoon") else "",
             ]
             flag_str = ",".join(f for f in flags if f)
             name = f"  {row['displayName']}" if row.get("displayName") and row["displayName"] != row["modelId"] else ""
