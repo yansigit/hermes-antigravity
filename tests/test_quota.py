@@ -95,6 +95,16 @@ def test_parse_model_quota_missing_quota_info_is_unknown_not_zero():
     assert row["remainingFraction"] is None
 
 
+def test_parse_model_quota_marks_leaving_soon():
+    """The relay's tagTitle 'Leaving Soon' marks a retiring model; any other
+    tag (or none) is not a retirement."""
+    retiring = parse_model_quota("gemini-3.6-flash-low", {"tagTitle": "Leaving Soon"})
+    assert retiring is not None and retiring["leavingSoon"] is True
+    notice = parse_model_quota("claude-sonnet-4-6", {"tagTitle": "Notice"})
+    assert notice is not None and notice["leavingSoon"] is False
+    untagged = parse_model_quota("gemini-3.8-flash-low", {})
+    assert untagged is not None and untagged["leavingSoon"] is False
+
 def test_parse_models_quota_sorts_and_filters():
     data = {"models": {
         "gemini-3.8-flash-low": {"quotaInfo": {"remainingFraction": 0.9}},
@@ -366,17 +376,20 @@ def test_quota_low_threshold_default_and_env():
 
 def test_format_quota_report_marks_low_models():
     """A model below the warn threshold is flagged LOW; exhausted keeps its own
-    flag; a healthy model is not flagged."""
+    flag; a healthy model is not flagged; a retiring model is flagged LEAVING."""
     models = [
         {"modelId": "m-low", "remainingFraction": 0.10, "resetTime": None,
          "isExhausted": False, "displayName": "Low", "supportsThinking": False,
-         "supportsImages": False, "recommended": False},
+         "supportsImages": False, "recommended": False, "leavingSoon": False},
         {"modelId": "m-exhausted", "remainingFraction": 0.0, "resetTime": None,
          "isExhausted": True, "displayName": "Exhausted", "supportsThinking": False,
-         "supportsImages": False, "recommended": False},
+         "supportsImages": False, "recommended": False, "leavingSoon": False},
         {"modelId": "m-healthy", "remainingFraction": 0.5, "resetTime": None,
          "isExhausted": False, "displayName": "Healthy", "supportsThinking": False,
-         "supportsImages": False, "recommended": False},
+         "supportsImages": False, "recommended": False, "leavingSoon": False},
+        {"modelId": "m-retiring", "remainingFraction": 0.5, "resetTime": None,
+         "isExhausted": False, "displayName": "Retiring", "supportsThinking": False,
+         "supportsImages": False, "recommended": False, "leavingSoon": True},
     ]
     with patch.dict(os.environ):
         os.environ.pop("ANTIGRAVITY_QUOTA_WARN_AT", None)
@@ -385,9 +398,11 @@ def test_format_quota_report_marks_low_models():
     low_line = next(line for line in lines if "m-low" in line)
     exhausted_line = next(line for line in lines if "m-exhausted" in line)
     healthy_line = next(line for line in lines if "m-healthy" in line)
+    retiring_line = next(line for line in lines if "m-retiring" in line)
     assert "LOW" in low_line
     assert "exhausted" in exhausted_line and "LOW" not in exhausted_line
     assert "LOW" not in healthy_line
+    assert "LEAVING" in retiring_line and "LOW" not in retiring_line
 
 
 # ── report formatting ──────────────────────────────────────────────────────

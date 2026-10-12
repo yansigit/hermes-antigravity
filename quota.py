@@ -145,6 +145,7 @@ def parse_model_quota(model_id: str, info: Any) -> dict[str, Any] | None:
     display_name = _as_str(info.get("displayName"))
     label = _as_str(info.get("label"))
     model_name = _as_str(info.get("modelName"))
+    tag = info.get("tagTitle")
     return {
         "modelId": model_id,
         "displayName": display_name or label or model_name,
@@ -154,6 +155,10 @@ def parse_model_quota(model_id: str, info: Any) -> dict[str, Any] | None:
         "supportsThinking": _as_bool(info.get("supportsThinking")),
         "supportsImages": _as_bool(info.get("supportsImages")),
         "recommended": _as_bool(info.get("recommended")),
+        # The relay marks models Google is retiring with tagTitle 'Leaving
+        # Soon'. Surfaced so the quota report can flag them; discovery itself
+        # already drops them (models.py).
+        "leavingSoon": isinstance(tag, str) and "leaving" in tag.lower(),
     }
 
 
@@ -381,6 +386,7 @@ def format_quota_report(
                 "exhausted" if row.get("isExhausted") else "",
                 "LOW" if (quota_is_low(row, threshold=quota_low_threshold())
                           and not row.get("isExhausted")) else "",
+                "LEAVING" if row.get("leavingSoon") else "",
             ]
             flag_str = ",".join(f for f in flags if f)
             name = f"  {row['displayName']}" if row.get("displayName") and row["displayName"] != row["modelId"] else ""
