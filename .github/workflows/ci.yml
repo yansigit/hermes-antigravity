@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly clean-room run: catches rot that no PR exposes (upstream Hermes
+  # moves, a dependency breaks, the relay changes shape). Runners are virgin
+  # every time, so each scheduled run is a reproducibility measurement.
+  schedule:
+    - cron: "0 6 * * 1"
 
 jobs:
   tests:
@@ -90,3 +95,33 @@ jobs:
         with:
           name: upstream-drift-report
           path: drift-report.json
+
+  repro:
+    # Full clean-room reproducibility: install the real Hermes CLI from
+    # upstream git (PyPI's hermes-agent is too old for this plugin) and run
+    # the loader's own admission probe. The tests job proves the code; this
+    # job proves a stranger can install and load it. Deliberately NOT in the
+    # branch-protection required set: it depends on upstream main being
+    # pip-installable, which this repo does not control.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Hermes CLI from upstream git
+        run: python -m pip install --quiet "git+https://github.com/NousResearch/hermes-agent.git"
+
+      - name: Loader admission probe
+        run: |
+          hermes plugins validate . --json > validate.json
+          python -c "import json,sys; d=json.load(open('validate.json')); print('validate ok:', d['ok']); sys.exit(0 if d['ok'] else 1)"
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-validate-report
+          path: validate.json
