@@ -97,12 +97,16 @@ jobs:
           path: drift-report.json
 
   repro:
-    # Full clean-room reproducibility: install the real Hermes CLI from
-    # upstream git (PyPI's hermes-agent is too old for this plugin) and run
-    # the loader's own admission probe. The tests job proves the code; this
-    # job proves a stranger can install and load it. Deliberately NOT in the
-    # branch-protection required set: it depends on upstream main being
-    # pip-installable, which this repo does not control.
+    # Full clean-room reproducibility: run the real Hermes CLI from a fresh
+    # upstream git clone — no install, no host state. Upstream deliberately
+    # refuses wheel builds ("Building wheels or sdists for hermes-agent is
+    # not supported"), so pip-installing the CLI is not an option; running
+    # it in place from the clone is the supported shape (the CLI
+    # self-provisions its runtime under a fresh HERMES_HOME).
+    # The tests job proves the code; this job proves a stranger can load it
+    # through the loader's own admission probe. Deliberately NOT in the
+    # branch-protection required set: it tracks upstream main, which this
+    # repo does not control.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,12 +115,22 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Hermes CLI from upstream git
-        run: python -m pip install --quiet "git+https://github.com/NousResearch/hermes-agent.git"
+      - name: Fetch the Hermes core
+        run: |
+          git clone --depth 1 https://github.com/NousResearch/hermes-agent.git \
+            "$RUNNER_TEMP/hermes-agent"
 
       - name: Loader admission probe
         run: |
-          hermes plugins validate . --json > validate.json
+          cat > "$RUNNER_TEMP/run_validate.py" <<'EOF'
+          import sys
+          sys.argv = ["hermes", "plugins", "validate", ".", "--json"]
+          from hermes_cli.main import main
+          raise SystemExit(main())
+          EOF
+          PYTHONPATH="$RUNNER_TEMP/hermes-agent" \
+          HERMES_HOME="$RUNNER_TEMP/hermes-home" \
+          python "$RUNNER_TEMP/run_validate.py" > validate.json
           python -c "import json,sys; d=json.load(open('validate.json')); print('validate ok:', d['ok']); sys.exit(0 if d['ok'] else 1)"
 
       - name: Upload validation report
