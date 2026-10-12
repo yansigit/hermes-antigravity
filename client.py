@@ -1,7 +1,10 @@
 """Antigravity HTTP client adapter matching OpenAI client contract in Hermes AIAgent.
 
-Adapted from Rahul Arya's pi-antigravity (https://github.com/Rahularya01/pi-antigravity, MIT License)
-for the Hermes Agent Python runtime.
+Speaks the Google Cloud Code Assist API directly. Originated as an adaptation
+of Rahul Arya's pi-antigravity (https://github.com/Rahularya01/pi-antigravity,
+MIT License); now maintained independently — wire behavior is validated
+against the official Antigravity CLI and the live relay, not by tracking
+pi-antigravity's advances.
 """
 from __future__ import annotations
 

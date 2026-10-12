@@ -194,7 +194,7 @@ def test_payload_without_envelope_omits_session_fields():
 
 
 def test_function_response_uses_output_shape():
-    """Upstream pi-antigravity uses response.output; response.content is non-canonical."""
+    """The relay's canonical shape is response.output; response.content is non-canonical."""
     _THOUGHT_SIGNATURES["__last__"] = "sig-test"
     try:
         payload = to_antigravity_payload(

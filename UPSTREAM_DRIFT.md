@@ -1,11 +1,15 @@
 # Upstream drift tracker
 
-This plugin is a **port**. Its wire protocol, envelope and credentials are owned by
-[`Rahularya01/pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) (MIT), which
-reverse-engineered them from the official Antigravity desktop CLI.
+This plugin speaks Google's Cloud Code Assist API directly. Its references are
+the **official Antigravity CLI** (wire fingerprint, measured live) and the
+**live relay responses** (model catalog, quota, retirement tags).
+[`Rahularya01/pi-antigravity`](https://github.com/Rahularya01/pi-antigravity) (MIT)
+pioneered the reverse-engineering this plugin originated from; it is kept as a
+secondary cross-check in `tools/check_upstream_drift.py`, not as the tracked
+reference — the plugin no longer follows pi-antigravity's advances.
 
-A port has no compiler to tell it when upstream moves. Every field below was copied at
-some point and is now only as correct as the day it was copied. Three separate incidents
+Nothing compiles against Google to tell it when the relay moves. Every field below
+was measured at some point and is now only as correct as the day it was measured. Three separate incidents
 in this repository were **silent**: the relay degraded, or 404'd, without raising.
 
 This file is the defence. One row per wire field, with the value observed on each side and
@@ -16,13 +20,16 @@ upstream bump shows up as a red test rather than a silent degradation.
 
 Two references, checked separately:
 
-1. **Official CLI** (the fingerprint source): measure the live User-Agent of the
+1. **Official CLI + live relay** (primary): measure the live User-Agent of the
    `agy` binary (see "How the official CLI was measured" below) and note the
-   version + build. This drives `CLI_VERSION` / `CLI_BUILD`.
-2. **pi-antigravity** (the protocol reference): `git fetch` it and compare each
+   version + build; read the model catalog, quota and retirement tags from live
+   `fetchAvailableModels` responses. These drive `CLI_VERSION` / `CLI_BUILD`
+   and discovery.
+2. **pi-antigravity** (secondary cross-check): `git fetch` it and compare each
    protocol row below (scopes, redirect, model enums) against its TypeScript
-   source.
-3. On any mismatch: port the change, update the relevant columns and the
+   source. A mismatch here alone does not move the plugin — the official CLI
+   and the live relay decide.
+3. On any mismatch against the primary reference: port the change, update the relevant columns and the
    `checked` date, and open a PR. Never change a value here without changing the
    code that uses it.
 4. Rows marked **port only** are deliberately absent upstream. Do not "fix" them
@@ -49,12 +56,13 @@ merely renamed in the same diff.
 
 ## Status
 
-Three references, not two. **pi-antigravity** is the reference
-*implementation* this port reimplements, but it is not the wire source of truth.
-**Official CLI** is the binary Google ships, measured by capturing its live
-User-Agent on the operator's host (see "How the official CLI was measured" below).
-The port must track the official CLI; pi-antigravity is kept because its enum
-table and envelope notes remain useful.
+Two references, not one. **Official CLI + live relay** are the source of truth
+the plugin tracks: the binary Google ships, measured by capturing its live
+User-Agent on the operator's host (see "How the official CLI was measured" below),
+plus the live `fetchAvailableModels` responses. **pi-antigravity** is the
+historical implementation this plugin originated from; its enum table and
+envelope notes remain a useful cross-check, which is why the table keeps its
+column and the checker keeps comparing against it.
 
 | Field | Official CLI | pi-antigravity | hermes-antigravity | Since | Checked |
 |---|---|---|---|---|---|

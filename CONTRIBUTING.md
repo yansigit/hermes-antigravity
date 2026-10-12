@@ -65,14 +65,14 @@ python3 tools/run_tests.py --min-tests "$(python3 tools/run_tests.py --collect-o
 #     "$(HERMES_HOME=/tmp/hreal python3 tools/run_tests.py --collect-only)"
 # Fully hermetic (no installed plugins at all): HERMES_HOME=/tmp/htest (empty dir).
 
-# 2. wire protocol still matches upstream pi-antigravity
+# 2. wire protocol still matches the measured reference (official CLI + live relay; pi-antigravity is a cross-check only)
 python3 tools/check_upstream_drift.py
 
 # 3. the plugin still loads as a valid Hermes plugin, with no core overrides
 hermes plugins validate --json .   # "ok" must be true
 ```
 
-If you port anything from upstream, update [`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md) (both columns + checked date) in the same PR. Never change a value there without changing the code that uses it.
+If you change anything against the reference (official CLI / live relay), update [`UPSTREAM_DRIFT.md`](UPSTREAM_DRIFT.md) (both columns + checked date) in the same PR. Never change a value there without changing the code that uses it.
 
 ---
 
