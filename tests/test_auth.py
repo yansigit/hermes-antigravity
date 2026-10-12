@@ -1,5 +1,4 @@
 import os
-import tempfile
 from unittest.mock import patch
 from auth import (
     generate_pkce,

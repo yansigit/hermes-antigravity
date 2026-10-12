@@ -25,7 +25,6 @@ import time
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -299,7 +298,11 @@ class AntigravityAuthManager:
         if callback_error is not None:
             port_taken = isinstance(callback_error, OSError) and getattr(
                 callback_error, "errno", None
-            ) in (48, 98, 10048)  # EADDRINUSE on linux / macOS / windows
+            ) in (48, 98, 10048, 10013)
+            # EADDRINUSE on linux(98)/macOS(48)/windows(10048). 10013 = WSAEACCES:
+            # on Windows a port held with SO_EXCLUSIVEADDRUSE (a second concurrent
+            # login) rejects the bind as permission-denied rather than
+            # address-in-use, but the user's fix is identical.
             if port_taken:
                 print(
                     f"\nPort {_CALLBACK_PORT} is already in use by another "
