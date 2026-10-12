@@ -125,7 +125,7 @@ jobs:
         # builds), so its third-party imports must come from the runner env.
         # Only what the `plugins validate` probe path imports — not the full
         # upstream dev environment (pm/uv-managed, out of scope here).
-        run: python -m pip install --quiet ruamel.yaml python-dotenv
+        run: python -m pip install --quiet ruamel.yaml python-dotenv rich
 
       - name: Loader admission probe
         run: |
