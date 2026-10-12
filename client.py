@@ -24,7 +24,7 @@ try:
         fetch_account_quota,
         TUNED_OPENER,
     )
-    from .quota import best_model_row, quota_is_low
+    from .quota import best_model_row, quota_is_low, quota_low_threshold, format_reset, percent_label
     from .translator import (
         to_antigravity_payload,
         parse_sse_event,
@@ -45,7 +45,7 @@ except ImportError:
         fetch_account_quota,
         TUNED_OPENER,
     )
-    from quota import best_model_row, quota_is_low
+    from quota import best_model_row, quota_is_low, quota_low_threshold, format_reset, percent_label
     from translator import (
         to_antigravity_payload,
         parse_sse_event,
@@ -398,7 +398,21 @@ class AntigravityClient:
             return None
 
         row = best_model_row(snapshot.get("models", []), runtime_model)
+        if row is None:
+            return None  # no matching model row to measure
+        if not quota_is_low(row, threshold=quota_low_threshold()):
+            return None  # plenty of quota for this model
+
         if not quota_is_low(row):
+            # Approaching the wall but not empty: warn, keep the account. The
+            # 429 backstop still catches a bucket that empties mid-request.
+            logger.warning(
+                "Antigravity quota low for %s on %s (%s left, resets %s); "
+                "add another account to avoid a 429",
+                runtime_model, account.email,
+                percent_label(row.get("remainingFraction")),
+                format_reset(row.get("resetTime"), time.time()),
+            )
             return None
 
         logger.info(

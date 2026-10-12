@@ -22,6 +22,7 @@ low fraction on one row does not mean that model alone is nearly exhausted.
 from __future__ import annotations
 
 import math
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -303,6 +304,25 @@ def quota_is_low(row: dict[str, Any] | None, threshold: float = 0.0) -> bool:
     return float(remaining) <= threshold
 
 
+def quota_low_threshold() -> float:
+    """Remaining fraction below which quota is 'approaching the wall' (warn).
+
+    The proactive switch still only moves off an *empty* bucket (quota_is_low
+    at its 0.0 default); this higher threshold drives the earlier warning so an
+    operator can add an account before a 429 burns a round-trip. Configurable
+    via ANTIGRAVITY_QUOTA_WARN_AT (a fraction, e.g. 0.2 = 20%); an unparseable
+    or out-of-range value falls back to the default rather than raising.
+    """
+    raw = os.environ.get("ANTIGRAVITY_QUOTA_WARN_AT")
+    if raw is None:
+        return 0.20
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.20
+    return min(1.0, max(0.0, value))
+
+
 # ── Formatting ─────────────────────────────────────────────────────────────
 
 
@@ -359,6 +379,8 @@ def format_quota_report(
                 "thinking" if row.get("supportsThinking") else "",
                 "images" if row.get("supportsImages") else "",
                 "exhausted" if row.get("isExhausted") else "",
+                "LOW" if (quota_is_low(row, threshold=quota_low_threshold())
+                          and not row.get("isExhausted")) else "",
             ]
             flag_str = ",".join(f for f in flags if f)
             name = f"  {row['displayName']}" if row.get("displayName") and row["displayName"] != row["modelId"] else ""
