@@ -3,8 +3,6 @@ import tempfile
 from unittest.mock import patch
 from auth import (
     generate_pkce,
-    load_local_token,
-    save_token_cache,
     extract_project_id,
     AntigravityAuthManager,
 )
@@ -22,23 +20,6 @@ def test_extract_project_id():
     assert extract_project_id({"cloudaicompanionProject": "proj-456"}) == "proj-456"
     assert extract_project_id({"antigravityProjectId": "proj-789"}) == "proj-789"
     assert extract_project_id({"nested": {"id": "p1"}}) is None
-
-
-def test_save_and_load_token_cache():
-    with patch.dict(os.environ, {}, clear=True):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = os.path.join(tmpdir, "antigravity-auth.json")
-            data = {
-                "access_token": "mock-access-token-123",
-                "refresh_token": "mock-refresh-token-456",
-                "expires_at": 9999999999.0,
-                "project_id": "test-project-001",
-            }
-            save_token_cache(data, cache_path=cache_path)
-
-            loaded = load_local_token(cache_paths=[cache_path])
-            assert loaded["access_token"] == "mock-access-token-123"
-            assert loaded["project_id"] == "test-project-001"
 
 
 def test_auth_manager_get_valid_token_cached():

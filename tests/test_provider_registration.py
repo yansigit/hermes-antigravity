@@ -153,7 +153,8 @@ def test_auth_quota_status_has_no_bare_imports_under_package_load():
 
     child = textwrap.dedent(
         """
-        import sys
+        import sys, os
+        sys.path.insert(0, os.environ["TEST_TMPDIR"])
         from unittest.mock import patch
         import antigravity.auth as auth_mod
 
@@ -181,12 +182,13 @@ def test_auth_quota_status_has_no_bare_imports_under_package_load():
         if hermes_core.is_dir():
             paths.append(str(hermes_core))
         env["PYTHONPATH"] = os.pathsep.join(paths)
+        env["TEST_TMPDIR"] = tmp
         proc = subprocess.run(
-            [_sys.executable, "-c", child],
+            [os.environ.get("HERMES_PYTHON") or _sys.executable, "-c", child],
             capture_output=True, text=True, env=env, timeout=60,
         )
 
     combined = proc.stdout + proc.stderr
     assert "No module named" not in combined, (
         "auth.py quota path used a bare import under package load "
-        f"(issue #39 regression):\n{combined}")
+        f"(issue #39 regression):\\n{combined}")

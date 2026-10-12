@@ -68,7 +68,7 @@ This plugin solves that problem: it authenticates directly with your Google acco
 - **Native SSE Streaming & Thinking**: Server-Sent Events (SSE) streaming with live reasoning display (`delta.reasoning_content`) in the Hermes TUI and Gateway.
 - **Bidirectional Tool Calling**: Transparent mapping of OpenAI JSON schemas to Google Cloud Code Assist function declarations and function responses.
 - **Hybrid Authentication**:
-  - Auto-discovery of existing local sessions (`~/.gemini/antigravity-cli/antigravity-oauth-token`, `~/.pi/agent/auth.json`).
+  - Account onboarding through the Hermes auth surface (`hermes auth add antigravity` and `hermes auth remove antigravity`).
   - Interactive Google OAuth 2.0 PKCE flow with local callback listener (`http://localhost:51121/oauth-callback`) and headless fallback.
   - Transparent access token auto-refresh before expiration.
 - **Native Hermes Integration (`hermes model` & `/model`)**:

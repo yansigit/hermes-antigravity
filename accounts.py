@@ -1,8 +1,7 @@
 """Multi-account registry for Google Antigravity OAuth in Hermes Agent.
 
-Handles account storage, migration from legacy single-account format,
-active account selection, and edge-case detection (expired tokens,
-refresh failures, email mismatch).
+Handles account storage, active account selection, and edge-case
+detection (expired tokens, refresh failures, email mismatch).
 """
 from __future__ import annotations
 
@@ -40,9 +39,6 @@ def _hermes_home() -> Path:
 
 HERMES_ROOT = _hermes_home()
 DEFAULT_REGISTRY_PATH = HERMES_ROOT / "antigravity-accounts.json"
-LEGACY_CACHE_FILE = HERMES_ROOT / "antigravity-auth.json"
-LEGACY_PI_AUTH = Path.home() / ".pi" / "agent" / "auth.json"
-LEGACY_GEMINI_TOKEN = Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
 
 
 def _account_id_from_email(email: str) -> str:
@@ -108,9 +104,12 @@ class AntigravityAccountRegistry:
         self._load()
 
     def _load(self) -> None:
-        """Load registry from disk, migrating legacy format if needed."""
+        """Load registry from disk.
+
+        Hermes is the only credential source: a missing or unrecognisable
+        registry is left empty instead of scanning other tools' files.
+        """
         if not self.registry_path.is_file():
-            self._migrate_legacy()
             return
 
         try:
@@ -122,79 +121,16 @@ class AntigravityAccountRegistry:
             if not isinstance(data, dict):
                 return
 
-            # Version check — only load if version matches
             if data.get("version") == REGISTRY_VERSION:
                 self._data = data
             else:
                 logger.warning(
-                    "Registry version mismatch (expected %d, got %s) — migrating",
+                    "Registry version mismatch (expected %d, got %s) — starting empty",
                     REGISTRY_VERSION,
                     data.get("version"),
                 )
-                self._migrate_legacy()
         except Exception as exc:
             logger.debug("Failed to load registry: %s", exc)
-
-    def _migrate_legacy(self) -> None:
-        """Migrate from legacy single-account format to multi-account registry."""
-        legacy_creds = self._load_legacy_credentials()
-        if not legacy_creds:
-            return
-
-        email = legacy_creds.get("email", "migrated@legacy")
-        account = AccountRecord(
-            email=email,
-            credentials=legacy_creds.get("credentials", legacy_creds),
-            created_at=time.time() - 86400,  # Mark as pre-existing
-        )
-        self._data["accounts"][account.account_id] = account.to_dict()
-        self._data["active_account"] = account.account_id
-        self._save()
-        logger.info("Migrated legacy Antigravity credentials to account registry (%s)", email)
-
-    def _load_legacy_credentials(self) -> dict[str, Any] | None:
-        """Try to load credentials from legacy file locations."""
-        # Primary legacy: ~/.hermes/antigravity-auth.json
-        if LEGACY_CACHE_FILE.is_file():
-            try:
-                with open(LEGACY_CACHE_FILE, "r", encoding="utf-8") as f:
-                    data = json.loads(f.read().strip())
-                if isinstance(data, dict) and data.get("access_token"):
-                    return {
-                        "email": data.get("email", "migrated@legacy"),
-                        "credentials": {
-                            "access_token": data.get("access_token"),
-                            "refresh_token": data.get("refresh_token", ""),
-                            "expires_at": data.get("expires_at", time.time() + 3600),
-                            "project_id": data.get("project_id", "antigravity-default"),
-                        },
-                    }
-            except Exception:
-                pass
-
-        # Secondary: ~/.pi/agent/auth.json
-        if LEGACY_PI_AUTH.is_file():
-            try:
-                with open(LEGACY_PI_AUTH, "r", encoding="utf-8") as f:
-                    data = json.loads(f.read().strip())
-                if isinstance(data, dict):
-                    # pi-antigravity format: {"antigravity": {"token": {...}}}
-                    ag = data.get("antigravity", data)
-                    tok = ag.get("token", ag)
-                    if isinstance(tok, dict) and tok.get("access_token"):
-                        return {
-                            "email": "migrated@pi-legacy",
-                            "credentials": {
-                                "access_token": tok.get("access_token"),
-                                "refresh_token": tok.get("refresh_token", ""),
-                                "expires_at": tok.get("expires_at", time.time() + 3600),
-                                "project_id": tok.get("project_id", "antigravity-default"),
-                            },
-                        }
-            except Exception:
-                pass
-
-        return None
 
     def _save(self) -> None:
         """Persist registry to disk with 0600 permissions."""
