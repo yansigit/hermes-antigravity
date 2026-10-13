@@ -1,0 +1,34 @@
+name: Upstream private-symbol drift
+
+on:
+  schedule:
+    - cron: "0 0 * * 1"  # weekly, Monday UTC
+  workflow_dispatch:
+
+jobs:
+  private-symbols:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch the Hermes core (upstream)
+        run: |
+          git clone --depth 1 https://github.com/NousResearch/hermes-agent.git \
+            "$RUNNER_TEMP/hermes-agent"
+          echo "HERMES_CORE=$RUNNER_TEMP/hermes-agent" >> "$GITHUB_ENV"
+
+      - name: Check private helpers the plugin relies on
+        env:
+          PYTHONPATH: "${{ env.HERMES_CORE }}"
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, os.environ["HERMES_CORE"])
+          from hermes_cli.auth import _prompt_model_selection
+          from hermes_cli.model_setup_flows_common import _activate_provider_model
+          print("all private seams present")
+          PY
