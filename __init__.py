@@ -126,6 +126,9 @@ antigravity = AntigravityProfile(
     # tables, which catalog admission rule 9 refuses.
     auth_handler=antigravity_auth_handler,
     refresh_credential=antigravity_refresh_credential,
+    # ANTIGRAVITY_ACCESS_TOKEN / ANTIGRAVITY_PROJECT_ID are direct-API fallbacks: provider-owned
+    # OAuth accounts must be selected before them.
+    env_sources_last=True,
 )
 
 register_provider(antigravity)
