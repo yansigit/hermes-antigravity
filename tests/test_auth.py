@@ -197,6 +197,8 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
 
     calls = {}
 
+    from agent.credential_pool import PooledCredential
+
     class _Pool:
         def __init__(self):
             self.added = []
@@ -204,17 +206,17 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
         def entries(self):
             return []
 
-        def add(self, label, source, token, fields):
-            calls["add"] = {"label": label, "source": source, "token": token, "fields": fields}
-
-        def save(self):
-            calls["saved"] = True
+        def add_entry(self, entry):
+            calls["add_entry"] = entry
+            return entry
 
     class _PoolModule:
         @staticmethod
         def load_pool(name):
             calls["provider"] = name
             return _Pool()
+
+        PooledCredential = PooledCredential
 
     # stub the login: the handler must be exercised without a real browser flow
     fake_login = {
@@ -239,10 +241,9 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
 
     assert handled is True
     assert calls.get("provider") == "antigravity"
-    assert calls["add"]["source"] == "manual:antigravity_pkce"
-    assert calls["add"]["token"]
-    assert calls.get("saved") is True
-    assert "titouan@example.com" in calls["add"]["label"], (
+    assert calls["add_entry"].source == "manual:antigravity_pkce"
+    assert calls["add_entry"].access_token
+    assert "titouan@example.com" in calls["add_entry"].label, (
         "the pool row must be labelled with the account that signed in")
 
 
@@ -275,13 +276,13 @@ def test_auth_add_warns_about_google_tos_before_login(monkeypatch=None):
     class _Pool:
         def entries(self):
             return []
-        def add(self, *a, **k):
-            return None
-        def save(self):
-            return None
+        def add_entry(self, entry):
+            return entry
 
     fake = type(sys)("agent.credential_pool")
     fake.load_pool = lambda *a, **k: _Pool()
+    from agent.credential_pool import PooledCredential
+    fake.PooledCredential = PooledCredential
     saved = sys.modules.get("agent.credential_pool")
     sys.modules["agent.credential_pool"] = fake
     try:

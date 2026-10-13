@@ -570,19 +570,30 @@ def _antigravity_auth_add(args: Any) -> bool:
     from agent.credential_pool import load_pool
 
     print(_TOS_WARNING)
+    from uuid import uuid4
+
+    from agent.credential_pool import PooledCredential
+
     pool = load_pool("antigravity")
     creds = _antigravity_oauth_login(args)
     token = _antigravity_token_extractor(creds)
+    fields = _antigravity_fields_extractor(creds, "antigravity")
     label = (getattr(args, "label", None) or "").strip() or (
         f"{creds.get('email') or 'antigravity'}-oauth-{len(pool.entries()) + 1}"
     )
-    pool.add(
-        label,
+    entry = PooledCredential(
+        provider="antigravity",
+        id=uuid4().hex[:6],
+        label=label,
+        auth_type="oauth",
+        priority=0,
         source="manual:antigravity_pkce",
-        token=token,
-        fields=_antigravity_fields_extractor(creds, "antigravity"),
+        access_token=token,
+        refresh_token=fields.get("refresh_token"),
+        base_url=fields.get("base_url"),
+        extra=fields.get("extra") or {},
     )
-    pool.save()
+    pool.add_entry(entry)
     who = creds.get("email") or "unknown"
     print(f"Signed in to Google Antigravity as {who} ({label}).")
     return True
