@@ -9,7 +9,6 @@ and `hermes auth remove antigravity` at plugin load time.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from providers import register_provider
@@ -96,12 +95,8 @@ antigravity = AntigravityProfile(
     # override): declaring exactly the read set keeps the manifest honest for
     # `hermes plugins capabilities` and the catalog entry (rule 5).
     env_vars=(
-        "ANTIGRAVITY_ACCESS_TOKEN",
-        "ANTIGRAVITY_REFRESH_TOKEN",
-        "ANTIGRAVITY_PROJECT_ID",
         "ANTIGRAVITY_CLIENT_ID",
         "ANTIGRAVITY_CLIENT_SECRET",
-        "GOOGLE_OAUTH_TOKEN",
     ),
     base_url="https://daily-cloudcode-pa.googleapis.com",
     # NOTE: declared as api_key (not oauth_external) so the core's plugin
@@ -134,27 +129,9 @@ antigravity = AntigravityProfile(
 
 register_provider(antigravity)
 
-# Auto-populate env var for Hermes runtime resolver if local credentials exist
-try:
-    _reg = AntigravityAccountRegistry()
-    _active = _reg.get_account()
-    if _active and _active.credentials.get("access_token") and "ANTIGRAVITY_ACCESS_TOKEN" not in os.environ:
-        os.environ["ANTIGRAVITY_ACCESS_TOKEN"] = str(_active.credentials["access_token"])
-except Exception:
-    pass
 
 logger.debug("Antigravity auth surfaces declared on the provider profile")
 
-# Register overlay so Hermes main chat uses plugin's AntigravityClient
-try:
-    from hermes_cli.providers import HERMES_OVERLAYS, HermesOverlay
-    HERMES_OVERLAYS["antigravity"] = HermesOverlay(
-        auth_type="oauth_external",
-        base_url_override="https://daily-cloudcode-pa.googleapis.com",
-    )
-    logger.debug("Antigravity overlay registered")
-except Exception as exc:
-    logger.debug("Antigravity overlay registration skipped: %s", exc)
 
 
 def _model_flow_antigravity(config=None, current_model="", args=None):
@@ -233,13 +210,3 @@ def _model_flow_antigravity(config=None, current_model="", args=None):
         )
 
 
-# Best-effort: expose the flow to `hermes model` when the core exposes a
-# mutable flow registry. Core-owned, guarded — absence only means the
-# picker falls back to the generic provider path.
-try:
-    from hermes_cli.main import _PROVIDER_MODEL_FLOWS as _core_flows
-    if isinstance(_core_flows, dict):
-        _core_flows.setdefault("antigravity", _model_flow_antigravity)
-        logger.debug("Antigravity model flow registered with hermes core")
-except Exception as exc:
-    logger.debug("Antigravity model flow core registration skipped: %s", exc)

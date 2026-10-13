@@ -456,7 +456,7 @@ def test_fetch_account_quota_aggregates_three_rpcs():
                 return _Resp(assist_payload)
             raise AssertionError(f"unexpected path {path}")
 
-        with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+        with patch("models.TUNED_OPENER.open", side_effect=_fake_urlopen):
             snap = models_mod.fetch_account_quota("tok", "proj", email="me@example.com")
 
         assert snap["plan"] == "Google AI Pro (g1-pro-tier)"
@@ -493,7 +493,7 @@ def test_fetch_account_quota_survives_subscription_gated_summary():
                 raise _http_error(403, {"error": "SUBSCRIPTION_REQUIRED"})
             raise AssertionError(f"unexpected path {path}")
 
-        with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+        with patch("models.TUNED_OPENER.open", side_effect=_fake_urlopen):
             snap = models_mod.fetch_account_quota("tok", "proj", endpoints=["https://only.example"])
 
         # per-model quota is still measured
@@ -516,7 +516,7 @@ def test_fetch_available_models_still_records_quota_enums():
     }}
     _, original = _seed_cache()
     try:
-        with patch("urllib.request.urlopen", return_value=_Resp(payload)):
+        with patch("models.TUNED_OPENER.open", return_value=_Resp(payload)):
             models_mod.fetch_available_models("tok", "proj")
         assert models_mod.get_model_enum("gemini-3.8-flash-low") == "MODEL_PLACEHOLDER_M320"
     finally:
@@ -620,10 +620,13 @@ def test_proactive_switch_skipped_with_single_account():
     from accounts import AntigravityAccountRegistry
 
     sandbox = Path(tempfile.mkdtemp())
-    reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
-    reg.add_account("only@example.com", {
-        "access_token": "tok", "refresh_token": "rt",
-        "expires_at": 9e9, "project_id": "proj"})
+    with patch("accounts.LEGACY_CACHE_FILE", sandbox / "no-legacy.json"), \
+         patch("accounts.LEGACY_PI_AUTH", sandbox / "no-pi.json"), \
+         patch("accounts.LEGACY_GEMINI_TOKEN", sandbox / "no-gem.json"):
+        reg = AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
+        reg.add_account("only@example.com", {
+            "access_token": "tok", "refresh_token": "rt",
+            "expires_at": 9e9, "project_id": "proj"})
     client = _client_for(reg)
 
     with patch("client.fetch_account_quota") as probe:
@@ -678,7 +681,7 @@ def test_generate_uses_switched_token_when_quota_empty():
         return mock_resp
 
     with patch("client.fetch_account_quota", return_value=exhausted_snap), \
-         patch("urllib.request.urlopen", side_effect=_capture):
+         patch("client.TUNED_OPENER.open", side_effect=_capture):
         client.chat.completions.create(
             model="gemini-3.8-flash",
             messages=[{"role": "user", "content": "hi"}],
@@ -727,7 +730,7 @@ def test_switched_account_project_id_is_new_not_stale():
         return mock_resp
 
     with patch("client.fetch_account_quota", return_value=exhausted_snap), \
-         patch("urllib.request.urlopen", side_effect=_capture):
+         patch("client.TUNED_OPENER.open", side_effect=_capture):
         client.chat.completions.create(
             model="gemini-3.8-flash",
             messages=[{"role": "user", "content": "hi"}],
@@ -851,7 +854,7 @@ def test_reactive_429_failover_now_fires():
 
     # no proactive probe here: exercise the *reactive* path directly
     with patch("client.fetch_account_quota", side_effect=AssertionError("no probe expected")), \
-         patch("urllib.request.urlopen", side_effect=_side):
+         patch("client.TUNED_OPENER.open", side_effect=_side):
         client.chat.completions.create(
             model="gemini-3.8-flash",
             messages=[{"role": "user", "content": "hi"}],
@@ -1045,7 +1048,12 @@ def _capture(fn, *args):
 
 def _registry_empty(sandbox: Path):
     from accounts import AntigravityAccountRegistry
-    return AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
+
+    path = sandbox / "accounts.json"
+    # Force a genuine empty registry rather than inheriting a migrated
+    # legacy account from the ambient home.
+    path.write_text('{"version": 2, "active_account": null, "accounts": {}}')
+    return AntigravityAccountRegistry(registry_path=path)
 
 
 def test_cli_quota_reports_no_accounts():

@@ -29,7 +29,9 @@ def test_antigravity_create_client_hook():
     assert hasattr(client.chat.completions, "create")
 
 def test_antigravity_model_flow_hook():
-    # The plugin owns a callable model flow for `hermes model` integration.
+    # The plugin keeps its bespoke model flow callable, but does not register
+    # it in Hermes' private flow table (catalog rule 9). Catalog cores route
+    # registered plugin profiles through their generic plugin-provider flow.
     import importlib.util
     from pathlib import Path
     init_path = Path(__file__).resolve().parent.parent / "__init__.py"
@@ -38,18 +40,6 @@ def test_antigravity_model_flow_hook():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert callable(getattr(mod, "_model_flow_antigravity", None))
-    # Core registration is core-owned: only assert it when the core
-    # exposes the flow registry (older cores had _PROVIDER_MODEL_FLOWS;
-    # newer cores wire flows natively).
-    try:
-        import hermes_cli.main as _m
-    except ImportError:
-        return
-    flows = getattr(_m, "_PROVIDER_MODEL_FLOWS", None)
-    if flows is None:
-        return
-    assert "antigravity" in flows
-    assert callable(flows["antigravity"])
 
 
 def test_antigravity_skips_models_health_probe():
