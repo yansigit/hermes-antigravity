@@ -89,7 +89,7 @@ def _is_port_taken(exc: BaseException) -> bool:
 REDIRECT_URI = f"http://localhost:{_CALLBACK_PORT}/oauth-callback"
 
 DEFAULT_CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID") or "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-DEFAULT_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET") or "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"
+DEFAULT_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET") or "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"
 
 SCOPES = [
     "https://www.googleapis.com/auth/aicode",
@@ -426,10 +426,15 @@ class AntigravityAuthManager:
             return None
 
     def discover_project_id(self, token: str) -> str | None:
-        """Call /v1internal:loadCodeAssist to discover the user's project ID."""
+        """Call /v1internal:loadCodeAssist to discover the user's project ID.
+
+        The relay needs no client-identity metadata (probed 2026-10-14:
+        empty metadata answers 200 with the project like ideType-bearing
+        calls), so none is sent (catalog rule 11).
+        """
         req = urllib.request.Request(
             "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-            data=json.dumps({"metadata": {"ideType": "ANTIGRAVITY"}}).encode("utf-8"),
+            data=json.dumps({}).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
