@@ -243,6 +243,8 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
     assert calls.get("provider") == "antigravity"
     assert calls["add_entry"].source == "manual:antigravity_pkce"
     assert calls["add_entry"].access_token
+    assert calls["add_entry"].expires_at_ms == int(9e9 * 1000), (
+        "the pool row must carry an expiry stamp for proactive refresh")
     assert "titouan@example.com" in calls["add_entry"].label, (
         "the pool row must be labelled with the account that signed in")
 

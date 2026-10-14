@@ -535,8 +535,20 @@ def antigravity_refresh_credential(entry: Any) -> dict[str, Any] | None:
         account_id=account.account_id if account else None,
         credentials=dict(account.credentials) if account else None,
     )
+    if account is not None:
+        # The manager only persists when it loaded the account through the
+        # registry; an explicitly-passed credential leaves that field unset,
+        # so restore it here to keep the account registry in sync.
+        manager._account_record = account
+        manager._account_id = account.account_id
     rotated = manager.refresh_access_token()
-    return {"access_token": rotated, "refresh_token": (manager.credentials or {}).get("refresh_token", refresh)}
+    refreshed_credentials = manager.credentials or {}
+    expires_at = refreshed_credentials.get("expires_at")
+    return {
+        "access_token": rotated,
+        "refresh_token": refreshed_credentials.get("refresh_token", refresh),
+        "expires_at_ms": int(float(expires_at) * 1000) if expires_at else None,
+    }
 
 
 def antigravity_auth_handler(action: str, args: Any) -> bool:
@@ -591,6 +603,7 @@ def _antigravity_auth_add(args: Any) -> bool:
         access_token=token,
         refresh_token=fields.get("refresh_token"),
         base_url=fields.get("base_url"),
+        expires_at_ms=int(float(creds.get("expires_at", time.time() + 3600)) * 1000),
         extra=fields.get("extra") or {},
     )
     pool.add_entry(entry)
@@ -640,8 +653,12 @@ def _antigravity_auth_status(args: Any) -> bool:
 
 
 def _pool_entry_expired(entry: Any) -> bool:
-    """A pooled OAuth row is expired when its expires_at is in the past."""
+    """A pooled OAuth row is expired when its expiry is in the past."""
     import time as _time
+
+    expires_ms = getattr(entry, "expires_at_ms", None)
+    if expires_ms is not None:
+        return int(expires_ms) <= int(_time.time() * 1000)
 
     expires = getattr(entry, "expires_at", None)
     if not expires:
