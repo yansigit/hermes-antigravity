@@ -221,8 +221,6 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
             calls["provider"] = name
             return _Pool()
 
-        PooledCredential = PooledCredential
-
     # stub the login: the handler must be exercised without a real browser flow
     fake_login = {
         "access_token": "ya29.test-token",
@@ -233,6 +231,7 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
     }
     fake = type(sys)("agent.credential_pool")
     fake.load_pool = _PoolModule.load_pool
+    fake.PooledCredential = PooledCredential
     saved = sys.modules.get("agent.credential_pool")
     sys.modules["agent.credential_pool"] = fake
     try:
