@@ -290,7 +290,7 @@ Ce n'est **pas théorique**. Google a mené des vagues d'application actives dé
 
 ### Transport TLS (surface de détection)
 
-Le client officiel `agy` est un binaire **Go** ; ce plugin parle TLS via la stdlib Python `ssl`/OpenSSL. Leur ClientHello TLS (donc leur empreinte JA3) diffère. Le plugin **réduit** l'écart là où la stdlib le permet — il annonce `h2,http/1.1` et restreint la liste de ciphers vers celle de Go — mais il **ne peut pas** reproduire Go exactement : l'API SSL publique de Python n'expose ni la liste ordonnée des groupes supportés ni l'ordre des extensions, qui constituent le cœur du hash JA3. Voir `tls_profile.py` et l'issue #35 pour la mesure. Cela réduit la différence observable ; cela **ne rend pas** l'intégration conforme aux ToS.
+Le client officiel `agy` est un binaire **Go** ; ce plugin parle TLS via la stdlib Python `ssl`/OpenSSL avec un handshake par défaut. Leur ClientHello TLS (donc leur empreinte JA3) diffère, et cet écart est **assumé tel quel** : mesuré le 2026-10-14, le relais répond 200 avec le handshake par défaut, donc le tuning d'empreinte a été retiré (pas de mimicry sans besoin mesuré). L'écart stdlib-vs-Go reste documenté dans `UPSTREAM_DRIFT.md` et mesuré par `tools/transport_check.py`. Cela **ne rend pas** l'intégration conforme aux ToS.
 
 **Utilisation à vos propres risques.** Les auteurs de ce plugin ne sont pas responsables des conséquences liées à son utilisation.
 

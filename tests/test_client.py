@@ -19,7 +19,7 @@ def test_client_chat_completions_streaming_generator():
     mock_resp.__iter__.return_value = sse_lines
     mock_resp.status = 200
 
-    with patch("models.TUNED_OPENER.open", return_value=mock_resp):
+    with patch("models.DEFAULT_OPENER.open", return_value=mock_resp):
         client = AntigravityClient(auth_manager=mock_auth)
         stream = client.chat.completions.create(
             model="gemini-3.8-flash",
@@ -68,7 +68,7 @@ def test_403_validation_required_surfaces_the_verification_link():
             "validation_error_message": "Verify your account to continue.",
         }}]}}
 
-    with patch("models.TUNED_OPENER.open", side_effect=_http_error(403, body)):
+    with patch("models.DEFAULT_OPENER.open", side_effect=_http_error(403, body)):
         try:
             list(client.generate(model="gemini-3.8-flash", messages=[
                 {"role": "user", "content": "hi"}]))
@@ -83,7 +83,7 @@ def test_403_validation_required_surfaces_the_verification_link():
 def test_403_without_validation_details_still_reports_the_code():
     """A 403 with no VALIDATION_REQUIRED payload must not claim a verification issue."""
     client, _ = _client_with_registry()
-    with patch("models.TUNED_OPENER.open", side_effect=_http_error(403, {"error": "denied"})):
+    with patch("models.DEFAULT_OPENER.open", side_effect=_http_error(403, {"error": "denied"})):
         try:
             client.generate(model="gemini-3.8-flash", messages=[
                 {"role": "user", "content": "hi"}], stream=True)
@@ -108,7 +108,7 @@ def test_client_chat_completions_non_streaming():
     mock_resp.__iter__.return_value = sse_lines
     mock_resp.status = 200
 
-    with patch("models.TUNED_OPENER.open", return_value=mock_resp):
+    with patch("models.DEFAULT_OPENER.open", return_value=mock_resp):
         client = AntigravityClient(auth_manager=mock_auth)
         resp = client.chat.completions.create(
             model="gemini-3.8-flash",
@@ -140,7 +140,7 @@ def test_client_chat_completions_default_stream_is_false():
     mock_resp.__iter__.return_value = sse_lines
     mock_resp.status = 200
 
-    with patch("models.TUNED_OPENER.open", return_value=mock_resp):
+    with patch("models.DEFAULT_OPENER.open", return_value=mock_resp):
         client = AntigravityClient(auth_manager=mock_auth)
         # Calling without stream argument defaults to stream=False
         resp = client.chat.completions.create(
@@ -164,7 +164,7 @@ def test_client_chat_completions_non_streaming_tool_calls():
     mock_resp.__iter__.return_value = sse_lines
     mock_resp.status = 200
 
-    with patch("models.TUNED_OPENER.open", return_value=mock_resp):
+    with patch("models.DEFAULT_OPENER.open", return_value=mock_resp):
         client = AntigravityClient(auth_manager=mock_auth)
         resp = client.chat.completions.create(
             model="gemini-3.8-flash",
@@ -195,7 +195,7 @@ def test_client_chat_completions_awaitable_response():
     mock_resp.__iter__.return_value = sse_lines
     mock_resp.status = 200
 
-    with patch("models.TUNED_OPENER.open", return_value=mock_resp):
+    with patch("models.DEFAULT_OPENER.open", return_value=mock_resp):
         client = AntigravityClient(auth_manager=mock_auth)
 
         async def _run():

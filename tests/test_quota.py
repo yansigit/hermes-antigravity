@@ -2,7 +2,7 @@
 
 The parsers are tested without a socket: every wire shape Google can return is
 fed in as a dict and checked against the exact parsed fact. The seam test mocks
-``models.TUNED_OPENER.open`` the way the other modules do and asserts that the
+``models.DEFAULT_OPENER.open`` the way the other modules do and asserts that the
 three RPCs are aggregated, that a gated quota-summary 403 does not sink the
 per-model quota, and that quotaInfo is no longer discarded.
 """
@@ -515,7 +515,7 @@ def test_fetch_account_quota_aggregates_three_rpcs():
                 return _Resp(assist_payload)
             raise AssertionError(f"unexpected path {path}")
 
-        with patch("models.TUNED_OPENER.open", side_effect=_fake_urlopen):
+        with patch("models.DEFAULT_OPENER.open", side_effect=_fake_urlopen):
             snap = models_mod.fetch_account_quota("tok", "proj", email="me@example.com")
 
         assert snap["plan"] == "Google AI Pro (g1-pro-tier)"
@@ -552,7 +552,7 @@ def test_fetch_account_quota_survives_subscription_gated_summary():
                 raise _http_error(403, {"error": "SUBSCRIPTION_REQUIRED"})
             raise AssertionError(f"unexpected path {path}")
 
-        with patch("models.TUNED_OPENER.open", side_effect=_fake_urlopen):
+        with patch("models.DEFAULT_OPENER.open", side_effect=_fake_urlopen):
             snap = models_mod.fetch_account_quota("tok", "proj", endpoints=["https://only.example"])
 
         # per-model quota is still measured
@@ -575,7 +575,7 @@ def test_fetch_available_models_still_records_quota_enums():
     }}
     _, original = _seed_cache()
     try:
-        with patch("models.TUNED_OPENER.open", return_value=_Resp(payload)):
+        with patch("models.DEFAULT_OPENER.open", return_value=_Resp(payload)):
             models_mod.fetch_available_models("tok", "proj")
         assert models_mod.get_model_enum("gemini-3.8-flash-low") == "MODEL_PLACEHOLDER_M320"
     finally:
@@ -764,7 +764,7 @@ def test_generate_uses_switched_token_when_quota_empty():
         return mock_resp
 
     with patch("client.fetch_account_quota", return_value=exhausted_snap), \
-         patch("models.TUNED_OPENER.open", side_effect=_capture):
+         patch("models.DEFAULT_OPENER.open", side_effect=_capture):
         client.chat.completions.create(
             model="gemini-3.8-flash",
             messages=[{"role": "user", "content": "hi"}],
@@ -813,7 +813,7 @@ def test_switched_account_project_id_is_new_not_stale():
         return mock_resp
 
     with patch("client.fetch_account_quota", return_value=exhausted_snap), \
-         patch("models.TUNED_OPENER.open", side_effect=_capture):
+         patch("models.DEFAULT_OPENER.open", side_effect=_capture):
         client.chat.completions.create(
             model="gemini-3.8-flash",
             messages=[{"role": "user", "content": "hi"}],
@@ -937,7 +937,7 @@ def test_reactive_429_failover_now_fires():
 
     # no proactive probe here: exercise the *reactive* path directly
     with patch("client.fetch_account_quota", side_effect=AssertionError("no probe expected")), \
-         patch("models.TUNED_OPENER.open", side_effect=_side):
+         patch("models.DEFAULT_OPENER.open", side_effect=_side):
         client.chat.completions.create(
             model="gemini-3.8-flash",
             messages=[{"role": "user", "content": "hi"}],

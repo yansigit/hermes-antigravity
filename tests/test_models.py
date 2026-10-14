@@ -169,7 +169,7 @@ def test_clamp_max_tokens_default_ceiling():
 
 
 def test_fetch_available_models_empty_on_failure():
-    with patch("models.TUNED_OPENER.open", side_effect=Exception("network down")):
+    with patch("models.DEFAULT_OPENER.open", side_effect=Exception("network down")):
         models = fetch_available_models("fake-token", "fake-project")
         assert models == []
 
@@ -436,7 +436,7 @@ def test_fetch_available_models_records_the_enum():
     original_store = models_mod.MODEL_ENUM_STORE
     models_mod.MODEL_ENUM_STORE = Path(tempfile.mkdtemp()) / "enums.json"
     try:
-        with patch("models.TUNED_OPENER.open", return_value=_Resp()):
+        with patch("models.DEFAULT_OPENER.open", return_value=_Resp()):
             models_mod.fetch_available_models("tok", "proj")
         # enums are recorded even for ids the picker filters out
         assert models_mod.get_model_enum("unrelated-model") == "MODEL_PLACEHOLDER_U1"
@@ -476,7 +476,7 @@ def test_fetch_available_models_skips_leaving_soon_but_keeps_notice():
     original_store = models_mod.MODEL_ENUM_STORE
     models_mod.MODEL_ENUM_STORE = Path(tempfile.mkdtemp()) / "enums.json"
     try:
-        with patch("models.TUNED_OPENER.open", return_value=_Resp()):
+        with patch("models.DEFAULT_OPENER.open", return_value=_Resp()):
             discovered = models_mod.fetch_available_models("tok", "proj")
         assert "gemini-3.6-flash-low" not in discovered
         assert "claude-sonnet-4-6" in discovered

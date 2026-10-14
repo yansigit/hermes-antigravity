@@ -19,16 +19,14 @@ try:
     from . import quota as _quota
 except ImportError:
     import quota as _quota
-try:
-    from .tls_profile import get_tuned_opener as _get_tuned_opener
-except ImportError:
-    from tls_profile import get_tuned_opener as _get_tuned_opener
 
 logger = logging.getLogger(__name__)
 
-# Scope the tuned HTTPS ClientHello to this plugin (see tls_profile).
+# Plain stdlib HTTPS opener, scoped to this plugin. No TLS ClientHello
+# tuning: probed 2026-10-14, the relay answers 200 over a default handshake
+# (catalog rule 11 refuses fingerprint mimicry without a measured need).
 # Best-effort: never raises, never blocks a request if a knob is missing.
-TUNED_OPENER = _get_tuned_opener()
+DEFAULT_OPENER = urllib.request.build_opener()
 
 
 CLI_VERSION = "1.3.3"
@@ -426,7 +424,7 @@ def fetch_available_models(
             method="POST",
         )
         try:
-            with TUNED_OPENER.open(req, timeout=timeout) as resp:
+            with DEFAULT_OPENER.open(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 models_dict = data.get("models", {})
                 # One-shot discovery aid: dump the raw field names of each entry
@@ -518,7 +516,7 @@ def _post_json(
             method="POST",
         )
         try:
-            with TUNED_OPENER.open(req, timeout=timeout) as resp:
+            with DEFAULT_OPENER.open(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8")
                 try:
                     data = json.loads(raw)

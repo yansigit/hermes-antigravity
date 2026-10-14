@@ -118,7 +118,7 @@ def test_client_imports_as_package_submodule():
         if added:
             sys.path.remove(parent)
     # The package branch must have provided these, not the except fallback.
-    assert hasattr(mod, "TUNED_OPENER")
+    assert hasattr(mod, "DEFAULT_OPENER")
     assert hasattr(mod, "AntigravityClient")
 
 
