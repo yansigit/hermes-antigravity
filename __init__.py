@@ -85,6 +85,25 @@ class AntigravityProfile(ProviderProfile):
             return []
 
 
+def _profile_kwargs() -> dict[str, Any]:
+    """Keyword args for AntigravityProfile, compatible with old and new cores.
+
+    ``env_sources_last`` only exists on cores with the pool-priority hook;
+    older cores ignore pool order via ``getattr`` defaults, so omitting the
+    flag there degrades to default ordering instead of refusing to load.
+    """
+    kwargs: dict[str, Any] = {}
+    try:
+        from dataclasses import fields as _fields
+
+        names = {f.name for f in _fields(ProviderProfile)}
+    except Exception:
+        names = set()
+    if "env_sources_last" in names:
+        kwargs["env_sources_last"] = True
+    return kwargs
+
+
 antigravity = AntigravityProfile(
     name="antigravity",
     aliases=("google-antigravity", "agy", "cloudcode", "google-code-assist", "gemini-oauth", "google-oauth"),
@@ -126,8 +145,9 @@ antigravity = AntigravityProfile(
     auth_handler=antigravity_auth_handler,
     refresh_credential=antigravity_refresh_credential,
     # ANTIGRAVITY_ACCESS_TOKEN / ANTIGRAVITY_PROJECT_ID are direct-API fallbacks: provider-owned
-    # OAuth accounts must be selected before them.
-    env_sources_last=True,
+    # OAuth accounts must be selected before them (on cores without the
+    # pool-priority hook this is default pool order; see _profile_kwargs).
+    **_profile_kwargs(),
 )
 
 register_provider(antigravity)
