@@ -9,7 +9,6 @@ and `hermes auth remove antigravity` at plugin load time.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from providers import register_provider
@@ -132,15 +131,6 @@ antigravity = AntigravityProfile(
 )
 
 register_provider(antigravity)
-
-# Auto-populate env var for Hermes runtime resolver if local credentials exist
-try:
-    _reg = AntigravityAccountRegistry()
-    _active = _reg.get_account()
-    if _active and _active.credentials.get("access_token") and "ANTIGRAVITY_ACCESS_TOKEN" not in os.environ:
-        os.environ["ANTIGRAVITY_ACCESS_TOKEN"] = str(_active.credentials["access_token"])
-except Exception:
-    pass
 
 logger.debug("Antigravity auth surfaces declared on the provider profile")
 

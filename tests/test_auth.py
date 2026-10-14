@@ -34,13 +34,6 @@ def test_auth_manager_get_valid_token_cached():
     assert token == "mock-valid-token-789"
 
 
-def test_register_removal_step_returns_bool():
-    from auth import _register_removal_step
-    # Must never raise: True when the core registry accepts the step,
-    # False when the core removed the shim (add/list/status unaffected).
-    assert _register_removal_step() in (True, False)
-
-
 def test_callback_uri_is_derived_from_the_listener_port():
     """The registered redirect must match the port the listener actually binds.
 

@@ -88,14 +88,8 @@ def _is_port_taken(exc: BaseException) -> bool:
 
 REDIRECT_URI = f"http://localhost:{_CALLBACK_PORT}/oauth-callback"
 
-# Default Google Antigravity Desktop Client Credentials (split base64 to avoid static scanner false positives)
-DEFAULT_CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID") or base64.b64decode(
-    "MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlc"
-    "C5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ=="
-).decode("utf-8")
-DEFAULT_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET") or base64.b64decode(
-    "R09DU1BYLUs1OEZXUjQ" + "4NkxkTEoxbUxCOHNYQzR6NnFEQWY="
-).decode("utf-8")
+DEFAULT_CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID") or "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+DEFAULT_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET") or "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"
 
 SCOPES = [
     "https://www.googleapis.com/auth/aicode",
@@ -723,84 +717,6 @@ def _print_quota_status(registry: "AntigravityAccountRegistry", account: Any) ->
             print(f"  quota: {n} models advertised, {len(low)} exhausted")
     except Exception as exc:
         print(f"  quota: unavailable ({exc})")
-
-
-def _antigravity_remove_source(provider: str, removed) -> Any:
-    """RemoveStep for hermes auth remove antigravity — cleans the account registry."""
-    from agent.credential_sources import RemovalResult
-    result = RemovalResult()
-
-    registry = AntigravityAccountRegistry()
-
-    # Try to find by email first (stored in extra fields)
-    email = None
-    if hasattr(removed, 'extra') and isinstance(removed.extra, dict):
-        email = removed.extra.get('email')
-    # Fallback: try the label (might be an email for antigravity)
-    if not email:
-        email = getattr(removed, "label", None)
-    # Fallback: try by ID
-    account_id = getattr(removed, "id", None)
-    # Fallback: try by access_token
-    access_token = getattr(removed, "access_token", None)
-
-    removed_from_registry = False
-
-    # Try removing by email
-    if email and registry.remove_account(email):
-        result.cleaned.append(f"Removed Antigravity account: {email}")
-        removed_from_registry = True
-
-    # If not found by email, try by account ID
-    if not removed_from_registry and account_id and registry.remove_account(account_id):
-        result.cleaned.append(f"Removed Antigravity account: {account_id}")
-        removed_from_registry = True
-
-    # If still not found, try matching by access_token
-    if not removed_from_registry and access_token:
-        for acc in registry.list_accounts():
-            if acc.credentials.get("access_token") == access_token:
-                registry.remove_account(acc.account_id)
-                result.cleaned.append(f"Removed Antigravity account: {acc.email}")
-                removed_from_registry = True
-                break
-
-    if not removed_from_registry:
-        result.hints.append(f"Note: account may still exist in registry (not found by {email or account_id})")
-
-    result.suppress = False  # Don't suppress — allow re-add
-    return result
-
-
-def _register_removal_step() -> bool:
-    """Append our RemovalStep to the core registry without the condemned shim.
-
-    ``agent.credential_sources.register`` is a PLUGIN-COMPAT shim deleted on
-    2026-09-14 (see hermes-agent compat_manifest.json). The ``_REGISTRY``
-    list consumed by ``find_removal_step`` is real code and stays: appending
-    to it directly is exactly what the shim did, so behavior is identical
-    before and after the deadline.
-    """
-    try:
-        from agent import credential_sources as _cs
-        step = _cs.RemovalStep(
-            provider="antigravity",
-            source_id="manual:antigravity_pkce",
-            remove_fn=_antigravity_remove_source,
-            description="antigravity account registry",
-        )
-        registry = getattr(_cs, "_REGISTRY", None)
-        if hasattr(registry, "append"):
-            registry.append(step)
-            return True
-        shim = getattr(_cs, "register", None)
-        if callable(shim):
-            shim(step)
-            return True
-        return False
-    except Exception as exc:
-        logger.debug("Antigravity removal-step registration skipped: %s", exc)
-        return False
 
 
 def _cli_quota(registry: AntigravityAccountRegistry) -> None:
