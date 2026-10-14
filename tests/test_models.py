@@ -18,24 +18,22 @@ from models import (
 )
 
 
-def test_wire_fingerprint_matches_official_cli():
-    """Pin the CLI wire fingerprint to the value the official CLI sends.
+def test_wire_fingerprint_is_honest_about_client_identity():
+    """The plugin must not impersonate the official Antigravity CLI.
 
-    This is a drift detector, not a style assertion. The relay scores
-    requests on this fingerprint; when the official CLI bumps the version or
-    build number and this port does not, requests degrade silently rather
-    than failing loudly. Bump CLI_VERSION/CLI_BUILD in models.py in the
-    same change when the official CLI moves (measured 1.3.3 / cl=996823801,
-    captured 2026-10-10 via local MITM proxy).
+    Catalog rule 11 refuses vendor-client mimicry. The User-Agent names
+    this plugin and its version; host os/arch stay for debugging.
+    CLI_VERSION/CLI_BUILD below only track the official client for the
+    drift checker (tools/check_upstream_drift.py), never for identity.
     """
     assert CLI_VERSION == "1.3.3", (
         "Antigravity CLI version drifted from the official CLI; update models.py")
     assert CLI_BUILD == "996823801", (
         "Antigravity CLI build number drifted from the official CLI; update models.py")
     ua = DEFAULT_USER_AGENT
-    assert ua.startswith("antigravity/cli/1.3.3 (")
-    assert "cl=996823801" in ua
-    assert "auth_method=consumer" in ua
+    assert ua.startswith("hermes-antigravity/"), f"UA must name this plugin; got: {ua!r}"
+    assert "aidev_client" not in ua and "auth_method" not in ua, (
+        f"UA must not claim official-client fields; got: {ua!r}")
 
 
 def test_wire_fingerprint_reports_host_os_and_arch():

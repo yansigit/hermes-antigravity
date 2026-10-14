@@ -35,21 +35,24 @@ CLI_VERSION = "1.3.3"
 CLI_BUILD = "996823801"
 
 
-def get_user_agent() -> str:
-    """Return authentic Antigravity CLI wire User-Agent matching host OS and arch.
+PLUGIN_VERSION = "1.5.0"
 
-    CLI_VERSION / CLI_BUILD track the official Antigravity desktop client that
-    the relay expects. When the official CLI moves, tests/test_models.py fails
-    until this is bumped in lockstep (see tools/check_upstream_drift.py:
-    OFFICIAL_CLI_VERSION / OFFICIAL_CLI_BUILD).
+
+def get_user_agent() -> str:
+    """Return an honest User-Agent identifying this Hermes plugin.
+
+    The plugin speaks Google's Cloud Code Assist relay with the account's
+    own OAuth credential; it must not present itself as the official
+    Antigravity desktop client (catalog rule 11). Host os/arch stay in the
+    string for debugging, the ``aidev_client``/``auth_method`` claims go.
     """
     sys_os = platform.system().lower()
     os_type = "windows" if "win" in sys_os else ("darwin" if "darwin" in sys_os else "linux")
     machine = platform.machine().lower()
     arch = "arm64" if ("arm" in machine or "aarch64" in machine) else "amd64"
     return (
-        f"antigravity/cli/{CLI_VERSION} (aidev_client; os_type={os_type}; "
-        f"arch={arch}; cl={CLI_BUILD}; auth_method=consumer)"
+        f"hermes-antigravity/{PLUGIN_VERSION} (os_type={os_type}; "
+        f"arch={arch})"
     )
 
 
