@@ -273,7 +273,7 @@ This is **not theoretical**. Google has run active enforcement waves disabling a
 
 ### TLS transport (detection surface)
 
-The official `agy` client is a **Go** binary; this plugin speaks TLS through Python's stdlib `ssl`/OpenSSL. Their TLS ClientHello (and thus their JA3 fingerprint) differs. The plugin **narrows** the gap where stdlib allows — it advertises `h2,http/1.1` and restricts the cipher list toward Go's — but it **cannot** match Go exactly: Python's public SSL API exposes neither the ordered supported-groups list nor the extension order, which are the core of the JA3 hash. See `tls_profile.py` and issue #35 for the measurement. This reduces the observable difference; it does **not** make the integration ToS-compliant.
+The official `agy` client is a **Go** binary; this plugin speaks TLS through Python's stdlib `ssl`/OpenSSL with a default handshake. Their TLS ClientHello (and thus their JA3 fingerprint) differs, and that gap is **left as-is**: probed 2026-10-14, the relay answers 200 over the default handshake, so fingerprint tuning was removed (no mimicry without a measured need). The stdlib-vs-Go gap is still documented in `UPSTREAM_DRIFT.md` and measured by `tools/transport_check.py`. This does **not** make the integration ToS-compliant.
 
 **Use at your own discretion and risk.** The authors of this plugin are not responsible for any consequences arising from its use.
 

@@ -25,7 +25,7 @@ try:
         resolve_session_trajectory,
         antigravity_request_envelope,
         fetch_account_quota,
-        TUNED_OPENER,
+        DEFAULT_OPENER,
     )
     from .quota import best_model_row, quota_is_low, quota_low_threshold, format_reset, percent_label
     from .translator import (
@@ -46,7 +46,7 @@ except ImportError:
         resolve_session_trajectory,
         antigravity_request_envelope,
         fetch_account_quota,
-        TUNED_OPENER,
+        DEFAULT_OPENER,
     )
     from quota import best_model_row, quota_is_low, quota_low_threshold, format_reset, percent_label
     from translator import (
@@ -516,17 +516,23 @@ class AntigravityClient:
                 method="POST",
             )
             try:
-                response = TUNED_OPENER.open(req, timeout=30.0)
+                response = DEFAULT_OPENER.open(req, timeout=30.0)
                 break
             except urllib.error.HTTPError as err:
                 last_error = err
                 if err.code == 401:
-                    # Token expired -> refresh or login
+                    # Token rejected -> refresh once, then fail clean. Never
+                    # start an interactive login from inside a request:
+                    # unattended runs must fail instead of opening a browser
+                    # flow nobody can complete.
                     try:
                         token = self.auth.refresh_access_token()
-                    except Exception:
-                        creds = self.auth.login_interactive()
-                        token = creds["access_token"]
+                    except Exception as refresh_exc:
+                        raise RuntimeError(
+                            "Antigravity rejected the access token (401) and "
+                            "refresh failed. Run `hermes auth add antigravity` "
+                            "from an interactive terminal to sign in again."
+                        ) from refresh_exc
 
                     req = urllib.request.Request(
                         url,
@@ -539,7 +545,7 @@ class AntigravityClient:
                         method="POST",
                     )
                     try:
-                        response = TUNED_OPENER.open(req, timeout=30.0)
+                        response = DEFAULT_OPENER.open(req, timeout=30.0)
                         break
                     except Exception as retry_exc:
                         last_error = retry_exc
@@ -574,7 +580,7 @@ class AntigravityClient:
                     )
                     time.sleep(retry_after)
                     try:
-                        response = TUNED_OPENER.open(req, timeout=30.0)
+                        response = DEFAULT_OPENER.open(req, timeout=30.0)
                         break
                     except Exception as retry_exc:
                         last_error = retry_exc

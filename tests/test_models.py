@@ -21,12 +21,15 @@ from models import (
 def test_wire_fingerprint_matches_official_cli():
     """Pin the CLI wire fingerprint to the value the official CLI sends.
 
-    This is a drift detector, not a style assertion. The relay scores
-    requests on this fingerprint; when the official CLI bumps the version or
-    build number and this port does not, requests degrade silently rather
-    than failing loudly. Bump CLI_VERSION/CLI_BUILD in models.py in the
-    same change when the official CLI moves (measured 1.3.3 / cl=996823801,
-    captured 2026-10-10 via local MITM proxy).
+    DISCLOSED INTEROP EXCEPTION (catalog rule 11 / policy question):
+    probed 2026-10-14, the relay gates inference on this fingerprint
+    (official UA: 200; honest plugin UA: 429, same creds). This test pins
+    the required string so drift fails loudly instead of silently 429ing.
+    This is also a drift detector: when the official CLI bumps the version
+    or build number and this port does not, requests degrade silently
+    rather than failing loudly. Bump CLI_VERSION/CLI_BUILD in models.py in
+    the same change when the official CLI moves (measured 1.3.3 /
+    cl=996823801, captured 2026-10-10 via local MITM proxy).
     """
     assert CLI_VERSION == "1.3.3", (
         "Antigravity CLI version drifted from the official CLI; update models.py")
@@ -166,7 +169,7 @@ def test_clamp_max_tokens_default_ceiling():
 
 
 def test_fetch_available_models_empty_on_failure():
-    with patch("models.TUNED_OPENER.open", side_effect=Exception("network down")):
+    with patch("models.DEFAULT_OPENER.open", side_effect=Exception("network down")):
         models = fetch_available_models("fake-token", "fake-project")
         assert models == []
 
@@ -433,7 +436,7 @@ def test_fetch_available_models_records_the_enum():
     original_store = models_mod.MODEL_ENUM_STORE
     models_mod.MODEL_ENUM_STORE = Path(tempfile.mkdtemp()) / "enums.json"
     try:
-        with patch("models.TUNED_OPENER.open", return_value=_Resp()):
+        with patch("models.DEFAULT_OPENER.open", return_value=_Resp()):
             models_mod.fetch_available_models("tok", "proj")
         # enums are recorded even for ids the picker filters out
         assert models_mod.get_model_enum("unrelated-model") == "MODEL_PLACEHOLDER_U1"
@@ -473,7 +476,7 @@ def test_fetch_available_models_skips_leaving_soon_but_keeps_notice():
     original_store = models_mod.MODEL_ENUM_STORE
     models_mod.MODEL_ENUM_STORE = Path(tempfile.mkdtemp()) / "enums.json"
     try:
-        with patch("models.TUNED_OPENER.open", return_value=_Resp()):
+        with patch("models.DEFAULT_OPENER.open", return_value=_Resp()):
             discovered = models_mod.fetch_available_models("tok", "proj")
         assert "gemini-3.6-flash-low" not in discovered
         assert "claude-sonnet-4-6" in discovered

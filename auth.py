@@ -88,14 +88,8 @@ def _is_port_taken(exc: BaseException) -> bool:
 
 REDIRECT_URI = f"http://localhost:{_CALLBACK_PORT}/oauth-callback"
 
-# Default Google Antigravity Desktop Client Credentials (split base64 to avoid static scanner false positives)
-DEFAULT_CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID") or base64.b64decode(
-    "MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlc"
-    "C5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ=="
-).decode("utf-8")
-DEFAULT_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET") or base64.b64decode(
-    "R09DU1BYLUs1OEZXUjQ" + "4NkxkTEoxbUxCOHNYQzR6NnFEQWY="
-).decode("utf-8")
+DEFAULT_CLIENT_ID = os.environ.get("ANTIGRAVITY_CLIENT_ID") or "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+DEFAULT_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_CLIENT_SECRET") or "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"
 
 SCOPES = [
     "https://www.googleapis.com/auth/aicode",
@@ -108,10 +102,10 @@ SCOPES = [
 
 try:
     from .accounts import AntigravityAccountRegistry, AccountRecord
-    from .models import DEFAULT_USER_AGENT, TUNED_OPENER
+    from .models import DEFAULT_USER_AGENT, DEFAULT_OPENER
 except ImportError:
     from accounts import AntigravityAccountRegistry, AccountRecord
-    from models import DEFAULT_USER_AGENT, TUNED_OPENER
+    from models import DEFAULT_USER_AGENT, DEFAULT_OPENER
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -251,7 +245,7 @@ class AntigravityAuthManager:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with TUNED_OPENER.open(req, timeout=10.0) as resp:
+        with DEFAULT_OPENER.open(req, timeout=10.0) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         new_access_token = data["access_token"]
@@ -269,7 +263,18 @@ class AntigravityAuthManager:
 
         Returns:
             The credentials dict for the newly authenticated account.
+
+        Raises:
+            RuntimeError: when there is no interactive terminal to complete
+                the browser flow (cron, gateway, pipes). Unattended runs
+                must fail clean instead of opening a login nobody can finish.
         """
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Antigravity login needs an interactive terminal "
+                "(no browser flow started). Run `hermes auth add antigravity` "
+                "from a terminal to sign in."
+            )
         verifier, challenge = generate_pkce()
         state = secrets.token_hex(16)
         params = {
@@ -360,7 +365,7 @@ class AntigravityAuthManager:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with TUNED_OPENER.open(req, timeout=10.0) as resp:
+        with DEFAULT_OPENER.open(req, timeout=10.0) as resp:
             token_data = json.loads(resp.read().decode("utf-8"))
 
         # Try to get email from userinfo if not provided
@@ -414,17 +419,22 @@ class AntigravityAuthManager:
             headers={"Authorization": f"Bearer {access_token}"},
         )
         try:
-            with TUNED_OPENER.open(req, timeout=5.0) as resp:
+            with DEFAULT_OPENER.open(req, timeout=5.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data.get("email")
         except Exception:
             return None
 
     def discover_project_id(self, token: str) -> str | None:
-        """Call /v1internal:loadCodeAssist to discover the user's project ID."""
+        """Call /v1internal:loadCodeAssist to discover the user's project ID.
+
+        The relay needs no client-identity metadata (probed 2026-10-14:
+        empty metadata answers 200 with the project like ideType-bearing
+        calls), so none is sent (catalog rule 11).
+        """
         req = urllib.request.Request(
             "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-            data=json.dumps({"metadata": {"ideType": "ANTIGRAVITY"}}).encode("utf-8"),
+            data=json.dumps({}).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
@@ -433,7 +443,7 @@ class AntigravityAuthManager:
             method="POST",
         )
         try:
-            with TUNED_OPENER.open(req, timeout=8.0) as resp:
+            with DEFAULT_OPENER.open(req, timeout=8.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return extract_project_id(data)
         except Exception as exc:
@@ -535,8 +545,82 @@ def antigravity_refresh_credential(entry: Any) -> dict[str, Any] | None:
         account_id=account.account_id if account else None,
         credentials=dict(account.credentials) if account else None,
     )
+    if account is not None:
+        # The manager only persists when it loaded the account through the
+        # registry; an explicitly-passed credential leaves that field unset,
+        # so restore it here to keep the account registry in sync.
+        manager._account_record = account
+        manager._account_id = account.account_id
     rotated = manager.refresh_access_token()
-    return {"access_token": rotated, "refresh_token": (manager.credentials or {}).get("refresh_token", refresh)}
+    refreshed_credentials = manager.credentials or {}
+    expires_at = refreshed_credentials.get("expires_at")
+    return {
+        "access_token": rotated,
+        "refresh_token": refreshed_credentials.get("refresh_token", refresh),
+        "expires_at_ms": int(float(expires_at) * 1000) if expires_at else None,
+    }
+
+
+def resolve_pool_credential(
+    prefer_token: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any] | None:
+    """Lease (access_token, project_id, label) from the core credential pool.
+
+    Pool-first per catalog review: inference and discovery must use the row
+    ``auth_handler`` wrote, not the plugin's own account registry file.
+    ``pool.select()`` is rotation/cooldown aware (it refreshes pending rows
+    itself); ``prefer_token`` matches the bearer the core already leased into
+    ``create_client(api_key=...)`` so both sides serve the same row. Returns
+    None when the pool is unreachable or holds no usable row — callers fall
+    back to the registry (standalone use outside Hermes).
+    """
+    try:
+        from agent.credential_pool import load_pool
+    except ImportError:
+        return None
+    try:
+        pool = load_pool("antigravity")
+    except Exception:
+        return None
+    try:
+        if prefer_token:
+            wanted = prefer_token.strip()
+            for row in pool.entries():
+                token = (getattr(row, "access_token", "") or "").strip()
+                if token and token == wanted:
+                    return _pool_row_credential(row)
+        if pool.has_available(model=model):
+            row = pool.select(model=model)
+            if row is not None:
+                return _pool_row_credential(row)
+    except Exception:
+        return None
+    return None
+
+
+def _pool_row_credential(row: Any) -> dict[str, Any] | None:
+    """Normalize one pooled row to a static credential dict for the manager."""
+    token = (getattr(row, "access_token", "") or "").strip() or (
+        getattr(row, "runtime_api_key", "") or ""
+    ).strip()
+    if not token:
+        return None
+    extra = getattr(row, "extra", None) or {}
+    project = extra.get("project_id") or "aicode-consumers"
+    expires_ms = getattr(row, "expires_at_ms", None)
+    try:
+        expires_at = float(expires_ms) / 1000.0 if expires_ms else time.time() + 3600
+    except (TypeError, ValueError):
+        expires_at = time.time() + 3600
+    return {
+        "access_token": token,
+        "refresh_token": (getattr(row, "refresh_token", "") or "") or None,
+        "project_id": project,
+        "expires_at": expires_at,
+        "email": extra.get("email"),
+        "pool_label": getattr(row, "label", None),
+    }
 
 
 def antigravity_auth_handler(action: str, args: Any) -> bool:
@@ -570,19 +654,31 @@ def _antigravity_auth_add(args: Any) -> bool:
     from agent.credential_pool import load_pool
 
     print(_TOS_WARNING)
+    from uuid import uuid4
+
+    from agent.credential_pool import PooledCredential
+
     pool = load_pool("antigravity")
     creds = _antigravity_oauth_login(args)
     token = _antigravity_token_extractor(creds)
+    fields = _antigravity_fields_extractor(creds, "antigravity")
     label = (getattr(args, "label", None) or "").strip() or (
         f"{creds.get('email') or 'antigravity'}-oauth-{len(pool.entries()) + 1}"
     )
-    pool.add(
-        label,
+    entry = PooledCredential(
+        provider="antigravity",
+        id=uuid4().hex[:6],
+        label=label,
+        auth_type="oauth",
+        priority=0,
         source="manual:antigravity_pkce",
-        token=token,
-        fields=_antigravity_fields_extractor(creds, "antigravity"),
+        access_token=token,
+        refresh_token=fields.get("refresh_token"),
+        base_url=fields.get("base_url"),
+        expires_at_ms=int(float(creds.get("expires_at", time.time() + 3600)) * 1000),
+        extra=fields.get("extra") or {},
     )
-    pool.save()
+    pool.add_entry(entry)
     who = creds.get("email") or "unknown"
     print(f"Signed in to Google Antigravity as {who} ({label}).")
     return True
@@ -629,8 +725,12 @@ def _antigravity_auth_status(args: Any) -> bool:
 
 
 def _pool_entry_expired(entry: Any) -> bool:
-    """A pooled OAuth row is expired when its expires_at is in the past."""
+    """A pooled OAuth row is expired when its expiry is in the past."""
     import time as _time
+
+    expires_ms = getattr(entry, "expires_at_ms", None)
+    if expires_ms is not None:
+        return int(expires_ms) <= int(_time.time() * 1000)
 
     expires = getattr(entry, "expires_at", None)
     if not expires:
@@ -695,84 +795,6 @@ def _print_quota_status(registry: "AntigravityAccountRegistry", account: Any) ->
             print(f"  quota: {n} models advertised, {len(low)} exhausted")
     except Exception as exc:
         print(f"  quota: unavailable ({exc})")
-
-
-def _antigravity_remove_source(provider: str, removed) -> Any:
-    """RemoveStep for hermes auth remove antigravity — cleans the account registry."""
-    from agent.credential_sources import RemovalResult
-    result = RemovalResult()
-
-    registry = AntigravityAccountRegistry()
-
-    # Try to find by email first (stored in extra fields)
-    email = None
-    if hasattr(removed, 'extra') and isinstance(removed.extra, dict):
-        email = removed.extra.get('email')
-    # Fallback: try the label (might be an email for antigravity)
-    if not email:
-        email = getattr(removed, "label", None)
-    # Fallback: try by ID
-    account_id = getattr(removed, "id", None)
-    # Fallback: try by access_token
-    access_token = getattr(removed, "access_token", None)
-
-    removed_from_registry = False
-
-    # Try removing by email
-    if email and registry.remove_account(email):
-        result.cleaned.append(f"Removed Antigravity account: {email}")
-        removed_from_registry = True
-
-    # If not found by email, try by account ID
-    if not removed_from_registry and account_id and registry.remove_account(account_id):
-        result.cleaned.append(f"Removed Antigravity account: {account_id}")
-        removed_from_registry = True
-
-    # If still not found, try matching by access_token
-    if not removed_from_registry and access_token:
-        for acc in registry.list_accounts():
-            if acc.credentials.get("access_token") == access_token:
-                registry.remove_account(acc.account_id)
-                result.cleaned.append(f"Removed Antigravity account: {acc.email}")
-                removed_from_registry = True
-                break
-
-    if not removed_from_registry:
-        result.hints.append(f"Note: account may still exist in registry (not found by {email or account_id})")
-
-    result.suppress = False  # Don't suppress — allow re-add
-    return result
-
-
-def _register_removal_step() -> bool:
-    """Append our RemovalStep to the core registry without the condemned shim.
-
-    ``agent.credential_sources.register`` is a PLUGIN-COMPAT shim deleted on
-    2026-09-14 (see hermes-agent compat_manifest.json). The ``_REGISTRY``
-    list consumed by ``find_removal_step`` is real code and stays: appending
-    to it directly is exactly what the shim did, so behavior is identical
-    before and after the deadline.
-    """
-    try:
-        from agent import credential_sources as _cs
-        step = _cs.RemovalStep(
-            provider="antigravity",
-            source_id="manual:antigravity_pkce",
-            remove_fn=_antigravity_remove_source,
-            description="antigravity account registry",
-        )
-        registry = getattr(_cs, "_REGISTRY", None)
-        if hasattr(registry, "append"):
-            registry.append(step)
-            return True
-        shim = getattr(_cs, "register", None)
-        if callable(shim):
-            shim(step)
-            return True
-        return False
-    except Exception as exc:
-        logger.debug("Antigravity removal-step registration skipped: %s", exc)
-        return False
 
 
 def _cli_quota(registry: AntigravityAccountRegistry) -> None:

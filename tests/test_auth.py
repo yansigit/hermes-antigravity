@@ -1,10 +1,34 @@
 import os
+from dataclasses import dataclass, field
+from typing import Any
 from unittest.mock import patch
 from auth import (
     generate_pkce,
     extract_project_id,
     AntigravityAuthManager,
 )
+
+
+@dataclass
+class _StubPooledCredential:
+    """Hermetic stand-in for core's PooledCredential (no core import).
+
+    CI runs without the core's third-party deps (ruamel); every pool-touching
+    path in auth.py is duck-typed, so the stub only carries the fields the
+    tests construct and the code reads.
+    """
+
+    provider: str = "antigravity"
+    id: str = "pool01"
+    label: str = "me-oauth-1"
+    auth_type: str = "oauth"
+    priority: int = 0
+    source: str = "manual:antigravity_pkce"
+    access_token: str = ""
+    refresh_token: Any | None = None
+    base_url: Any | None = None
+    expires_at_ms: int | None = None
+    extra: dict = field(default_factory=dict)
 
 
 def test_generate_pkce():
@@ -32,13 +56,6 @@ def test_auth_manager_get_valid_token_cached():
     )
     token, proj = manager.get_credentials()
     assert token == "mock-valid-token-789"
-
-
-def test_register_removal_step_returns_bool():
-    from auth import _register_removal_step
-    # Must never raise: True when the core registry accepts the step,
-    # False when the core removed the shim (add/list/status unaffected).
-    assert _register_removal_step() in (True, False)
 
 
 def test_callback_uri_is_derived_from_the_listener_port():
@@ -93,6 +110,18 @@ def test_busy_callback_port_is_reported_with_its_reason():
     manager = auth_mod.AntigravityAuthManager(
         registry=AntigravityAccountRegistry(
             registry_path=__import__('pathlib').Path(__import__('tempfile').mkdtemp()) / 'accounts.json'))
+    import sys as _sys
+    if not _sys.stdin.isatty():
+        # Unattended runs must be refused fast (rule 12): no browser flow,
+        # no port probe, just the actionable error.
+        try:
+            manager.login_interactive()
+        except RuntimeError as exc:
+            assert "interactive terminal" in str(exc), f"unexpected error: {exc!r}"
+        else:
+            raise AssertionError("login_interactive must refuse non-TTY runs")
+        blocker.close()
+        return
     try:
         with redirect_stdout(buffer), \
                 patch("webbrowser.open"), \
@@ -197,6 +226,8 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
 
     calls = {}
 
+    PooledCredential = _StubPooledCredential
+
     class _Pool:
         def __init__(self):
             self.added = []
@@ -204,11 +235,9 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
         def entries(self):
             return []
 
-        def add(self, label, source, token, fields):
-            calls["add"] = {"label": label, "source": source, "token": token, "fields": fields}
-
-        def save(self):
-            calls["saved"] = True
+        def add_entry(self, entry):
+            calls["add_entry"] = entry
+            return entry
 
     class _PoolModule:
         @staticmethod
@@ -226,6 +255,7 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
     }
     fake = type(sys)("agent.credential_pool")
     fake.load_pool = _PoolModule.load_pool
+    fake.PooledCredential = PooledCredential
     saved = sys.modules.get("agent.credential_pool")
     sys.modules["agent.credential_pool"] = fake
     try:
@@ -239,10 +269,11 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
 
     assert handled is True
     assert calls.get("provider") == "antigravity"
-    assert calls["add"]["source"] == "manual:antigravity_pkce"
-    assert calls["add"]["token"]
-    assert calls.get("saved") is True
-    assert "titouan@example.com" in calls["add"]["label"], (
+    assert calls["add_entry"].source == "manual:antigravity_pkce"
+    assert calls["add_entry"].access_token
+    assert calls["add_entry"].expires_at_ms == int(9e9 * 1000), (
+        "the pool row must carry an expiry stamp for proactive refresh")
+    assert "titouan@example.com" in calls["add_entry"].label, (
         "the pool row must be labelled with the account that signed in")
 
 
@@ -275,13 +306,12 @@ def test_auth_add_warns_about_google_tos_before_login(monkeypatch=None):
     class _Pool:
         def entries(self):
             return []
-        def add(self, *a, **k):
-            return None
-        def save(self):
-            return None
+        def add_entry(self, entry):
+            return entry
 
     fake = type(sys)("agent.credential_pool")
     fake.load_pool = lambda *a, **k: _Pool()
+    fake.PooledCredential = _StubPooledCredential
     saved = sys.modules.get("agent.credential_pool")
     sys.modules["agent.credential_pool"] = fake
     try:
@@ -300,3 +330,125 @@ def test_auth_add_warns_about_google_tos_before_login(monkeypatch=None):
     assert "suspension or termination" in out.lower(), (
         "the warning must state the concrete account risk")
     assert "API key" in out, "the warning must point at the compliant alternative"
+
+
+def _fake_pool_module(rows, *, available=True):
+    """A stand-in agent.credential_pool module serving fixed rows."""
+    import sys as _sys
+
+    class _Pool:
+        def entries(self):
+            return list(rows)
+
+        def has_available(self, model=None):
+            del model
+            return available and bool(rows)
+
+        def select(self, model=None):
+            del model
+            return rows[0] if rows else None
+
+    fake = type(_sys)("agent.credential_pool")
+    fake.load_pool = lambda *a, **k: _Pool()
+    return fake
+
+
+def _pool_row(token, project="proj-pool", label="me-oauth-1"):
+    return _StubPooledCredential(
+        provider="antigravity",
+        id="pool01",
+        label=label,
+        auth_type="oauth",
+        priority=0,
+        source="manual:antigravity_pkce",
+        access_token=token,
+        refresh_token="1//refresh",
+        expires_at_ms=int(9e9 * 1000),
+        extra={"project_id": project, "email": "me@example.com"},
+    )
+
+
+def test_resolve_pool_credential_prefers_the_leased_token():
+    """create_client(api_key=...) must serve the exact row the core leased."""
+    import sys
+
+    import auth as auth_mod
+
+    rows = [_pool_row("ya29.leased-token", project="proj-leased")]
+    fake = _fake_pool_module(rows)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        leased = auth_mod.resolve_pool_credential(prefer_token="ya29.leased-token")
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+    assert leased is not None
+    assert leased["access_token"] == "ya29.leased-token"
+    assert leased["project_id"] == "proj-leased"
+
+
+def test_resolve_pool_credential_selects_when_no_preference():
+    """Without a leased token the rotation-aware select() picks the row."""
+    import sys
+
+    import auth as auth_mod
+
+    rows = [_pool_row("ya29.selected-token", project="proj-selected")]
+    fake = _fake_pool_module(rows)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        leased = auth_mod.resolve_pool_credential()
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+    assert leased is not None
+    assert leased["access_token"] == "ya29.selected-token"
+    assert leased["project_id"] == "proj-selected"
+
+
+def test_resolve_pool_credential_empty_pool_means_registry_fallback():
+    """No usable row -> None so callers fall back to the account registry."""
+    import sys
+
+    import auth as auth_mod
+
+    fake = _fake_pool_module([], available=False)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        assert auth_mod.resolve_pool_credential() is None
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+
+
+def test_create_client_serves_the_pool_row_first():
+    """Inference must use the pooled row auth_handler wrote (catalog review)."""
+    import sys
+
+    from providers import get_provider_profile
+
+    rows = [_pool_row("ya29.inference-token", project="proj-inference")]
+    fake = _fake_pool_module(rows)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        profile = get_provider_profile("antigravity")
+        assert profile is not None
+        client = profile.create_client(api_key="ya29.inference-token")
+        assert client is not None
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+    assert client.auth.credentials["access_token"] == "ya29.inference-token"
+    assert client.auth.credentials["project_id"] == "proj-inference"

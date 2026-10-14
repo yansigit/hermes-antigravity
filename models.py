@@ -19,16 +19,14 @@ try:
     from . import quota as _quota
 except ImportError:
     import quota as _quota
-try:
-    from .tls_profile import get_tuned_opener as _get_tuned_opener
-except ImportError:
-    from tls_profile import get_tuned_opener as _get_tuned_opener
 
 logger = logging.getLogger(__name__)
 
-# Scope the tuned HTTPS ClientHello to this plugin (see tls_profile).
+# Plain stdlib HTTPS opener, scoped to this plugin. No TLS ClientHello
+# tuning: probed 2026-10-14, the relay answers 200 over a default handshake
+# (catalog rule 11 refuses fingerprint mimicry without a measured need).
 # Best-effort: never raises, never blocks a request if a knob is missing.
-TUNED_OPENER = _get_tuned_opener()
+DEFAULT_OPENER = urllib.request.build_opener()
 
 
 CLI_VERSION = "1.3.3"
@@ -36,11 +34,16 @@ CLI_BUILD = "996823801"
 
 
 def get_user_agent() -> str:
-    """Return authentic Antigravity CLI wire User-Agent matching host OS and arch.
+    """Return the official Antigravity CLI wire User-Agent.
 
-    CLI_VERSION / CLI_BUILD track the official Antigravity desktop client that
-    the relay expects. When the official CLI moves, tests/test_models.py fails
-    until this is bumped in lockstep (see tools/check_upstream_drift.py:
+    DISCLOSED INTEROP EXCEPTION (catalog rule 11 / policy question):
+    the relay gates ``streamGenerateContent`` on the official-client
+    fingerprint — probed 2026-10-14, same account/token/model minutes
+    apart: official UA answers 200, an honest ``hermes-antigravity/x``
+    UA answers 429. Without this string inference does not work at all.
+    CLI_VERSION / CLI_BUILD track the official Antigravity desktop client;
+    when the official CLI moves, tests/test_models.py fails until this is
+    bumped in lockstep (see tools/check_upstream_drift.py:
     OFFICIAL_CLI_VERSION / OFFICIAL_CLI_BUILD).
     """
     sys_os = platform.system().lower()
@@ -421,7 +424,7 @@ def fetch_available_models(
             method="POST",
         )
         try:
-            with TUNED_OPENER.open(req, timeout=timeout) as resp:
+            with DEFAULT_OPENER.open(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 models_dict = data.get("models", {})
                 # One-shot discovery aid: dump the raw field names of each entry
@@ -513,7 +516,7 @@ def _post_json(
             method="POST",
         )
         try:
-            with TUNED_OPENER.open(req, timeout=timeout) as resp:
+            with DEFAULT_OPENER.open(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8")
                 try:
                     data = json.loads(raw)
@@ -591,7 +594,10 @@ def fetch_account_quota(
     assist_data, _assist_err = _post_json_safe(
         "/v1internal:loadCodeAssist",
         token,
-        {"metadata": {"ideType": "ANTIGRAVITY", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"}},
+        # No client-identity metadata: the relay answers 200 with the tier
+        # on an empty body (probed 2026-10-14), and rule 11 refuses the
+        # ideType/pluginType vendor-client claims.
+        {},
         timeout,
         endpoints,
     )

@@ -134,18 +134,10 @@ def capture_client_hello() -> dict:
     t = threading.Thread(target=listener, args=(srv,), daemon=True)
     t.start()
 
-    # Use the plugin's active SSL context (from tls_profile). Ensure the repo
-    # root is importable regardless of CWD, so this never silently falls back
-    # to the default context (which would measure the wrong transport).
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
+    # The plugin's transport is a plain stdlib default handshake (TLS tuning
+    # was removed: probed 2026-10-14, the relay answers 200 without it).
+    # Measure exactly what production handshakes with.
     ctx = ssl.create_default_context()
-    try:
-        import tls_profile
-        ctx = tls_profile.build_ssl_context()
-    except Exception as exc:
-        captured["error"] = f"tls_profile import failed: {exc}"
-        # keep the default context; the error is reported, not swallowed
 
     c = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:

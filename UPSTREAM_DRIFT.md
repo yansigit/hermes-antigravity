@@ -116,43 +116,46 @@ contains the string `996823801` repeated in build metadata
 (`googlefile:/google_src/files/996823801/`, `changelist 996823801`), and
 reports internal version `1.3.2.1` while `--version` prints `1.3.3`.
 
-## TLS transport divergence (issue #35)
+## TLS transport divergence (issue #35) — tuning removed
 
 The wire constants above are only half the identity: the transport differs too.
 `agy` is a Go binary; this port speaks TLS through Python's stdlib
-`ssl`/OpenSSL. Their ClientHello (hence JA3) differs, and a JA3 is a cheap
-server-side signal to correlate a non-official client.
+`ssl`/OpenSSL with a **default handshake**. Their ClientHello (hence JA3)
+differs, and a JA3 is a cheap server-side signal to correlate a non-official
+client. That gap is now **accepted, not narrowed**: probed 2026-10-14, the
+relay answers 200 (`PONG` on `streamGenerateContent`) over a default stdlib
+handshake, so `tls_profile.py` was deleted and the tuning tests replaced by
+neutral-transport guards (`tests/test_tls_profile.py` pins the absence of
+tuning — any reintroduced knob fails loudly).
 
 Same-host capture, 2026-10-10, Linux x86-64, Python 3.14.7 / OpenSSL 3.5.8,
-both dialing `daily-cloudcode-pa.googleapis.com`:
+both dialing `daily-cloudcode-pa.googleapis.com` (kept as reference):
 
-| Field | agy (Go) | urllib default | urllib + `tls_profile` |
-|---|---|---|---|
-| Cipher count | 13 | 17 | 13 |
-| ALPN | (none) | `http/1.1` | (none) |
-| Supported groups | `4588,4587,4589,29,23,24,25` | `4588,29,23,30,24,25,256,257` | same as default |
-| JA3 MD5 | `9b7dcdf3f997f1fb7b4409c94cb7ef36` | `a1ebe7f90a577e9399eaa60be3c67721` | (measured, see below) |
+| Field | agy (Go) | urllib default (= production since 2026-10-14) |
+|---|---|---|
+| Cipher count | 13 | 17 |
+| ALPN | (none) | `http/1.1` |
+| Supported groups | `4588,4587,4589,29,23,24,25` | `4588,29,23,30,24,25,256,257` |
+| JA3 MD5 | `9b7dcdf3f997f1fb7b4409c94cb7ef36` | `a1ebe7f90a577e9399eaa60be3c67721` |
 
 **Critical correction (dhaern review):** agy sends **no ALPN** toward
 `daily-cloudcode-pa.googleapis.com`. The earlier measurement of `h2,http/1.1` was
 from agy talking to `antigravity-unleash.goog` and `play.googleapis.com`, not the
-inference host. Advertising `h2` also **breaks** urllib/http.client (HTTP/1.1
-only) — Google selects h2, then rejects the request. The profile now omits
-ALPN entirely, matching agy on the inference host and keeping requests working.
+inference host.
 
-`tls_profile.py` narrows the cipher list toward Go's (13 suites, Go order) and
-drops extensions agy does not send (`OP_NO_TICKET`, `post_handshake_auth=False`,
-`SSL_OP_NO_ENCRYPT_THEN_MAC`). It **cannot** reach parity: Python's public
-SSL API exposes neither the ordered supported-groups list (Go carries the PQC
-hybrids `4587`/`4589`; Python's carries P-256/P-384 instead) nor the extension
-order. Those two fields dominate the JA3, so an exact Go fingerprint
-is not achievable in stdlib. The profile reduces the observable difference; it
-does not erase it, and it does not change the ToS position (see README
-disclaimer — the OAuth use itself is the violation).
+The removed `tls_profile.py` used to narrow the cipher list toward Go's
+(13 suites, Go order) and drop extensions agy does not send. It **could not**
+reach parity anyway: Python's public SSL API exposes neither the ordered
+supported-groups list (Go carries the PQC hybrids `4587`/`4589`; Python's
+carries P-256/P-384 instead) nor the extension order. Those two fields
+dominate the JA3, so an exact Go fingerprint was never achievable in stdlib —
+one more reason the tuning was not worth its mimicry cost. The remaining gap
+does not change the ToS position (see README disclaimer — the OAuth use
+itself is the violation).
 
-`tests/test_tls_profile.py` pins the tuned profile with a live loopback capture,
-so a Python/OpenSSL upgrade that silently changes the offered handshake fails
-loudly instead of growing a new fingerprint unnoticed.
+`tests/test_tls_profile.py` now pins the neutral transport (no tuning knob
+may exist), and `tools/transport_check.py` measures the production default
+handshake against the contract below.
 
 ## Transport parity contract
 
