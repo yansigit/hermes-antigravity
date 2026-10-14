@@ -263,7 +263,18 @@ class AntigravityAuthManager:
 
         Returns:
             The credentials dict for the newly authenticated account.
+
+        Raises:
+            RuntimeError: when there is no interactive terminal to complete
+                the browser flow (cron, gateway, pipes). Unattended runs
+                must fail clean instead of opening a login nobody can finish.
         """
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Antigravity login needs an interactive terminal "
+                "(no browser flow started). Run `hermes auth add antigravity` "
+                "from a terminal to sign in."
+            )
         verifier, challenge = generate_pkce()
         state = secrets.token_hex(16)
         params = {

@@ -86,6 +86,18 @@ def test_busy_callback_port_is_reported_with_its_reason():
     manager = auth_mod.AntigravityAuthManager(
         registry=AntigravityAccountRegistry(
             registry_path=__import__('pathlib').Path(__import__('tempfile').mkdtemp()) / 'accounts.json'))
+    import sys as _sys
+    if not _sys.stdin.isatty():
+        # Unattended runs must be refused fast (rule 12): no browser flow,
+        # no port probe, just the actionable error.
+        try:
+            manager.login_interactive()
+        except RuntimeError as exc:
+            assert "interactive terminal" in str(exc), f"unexpected error: {exc!r}"
+        else:
+            raise AssertionError("login_interactive must refuse non-TTY runs")
+        blocker.close()
+        return
     try:
         with redirect_stdout(buffer), \
                 patch("webbrowser.open"), \

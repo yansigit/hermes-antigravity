@@ -521,12 +521,18 @@ class AntigravityClient:
             except urllib.error.HTTPError as err:
                 last_error = err
                 if err.code == 401:
-                    # Token expired -> refresh or login
+                    # Token rejected -> refresh once, then fail clean. Never
+                    # start an interactive login from inside a request:
+                    # unattended runs must fail instead of opening a browser
+                    # flow nobody can complete.
                     try:
                         token = self.auth.refresh_access_token()
-                    except Exception:
-                        creds = self.auth.login_interactive()
-                        token = creds["access_token"]
+                    except Exception as refresh_exc:
+                        raise RuntimeError(
+                            "Antigravity rejected the access token (401) and "
+                            "refresh failed. Run `hermes auth add antigravity` "
+                            "from an interactive terminal to sign in again."
+                        ) from refresh_exc
 
                     req = urllib.request.Request(
                         url,
