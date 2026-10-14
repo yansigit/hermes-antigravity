@@ -561,6 +561,68 @@ def antigravity_refresh_credential(entry: Any) -> dict[str, Any] | None:
     }
 
 
+def resolve_pool_credential(
+    prefer_token: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any] | None:
+    """Lease (access_token, project_id, label) from the core credential pool.
+
+    Pool-first per catalog review: inference and discovery must use the row
+    ``auth_handler`` wrote, not the plugin's own account registry file.
+    ``pool.select()`` is rotation/cooldown aware (it refreshes pending rows
+    itself); ``prefer_token`` matches the bearer the core already leased into
+    ``create_client(api_key=...)`` so both sides serve the same row. Returns
+    None when the pool is unreachable or holds no usable row — callers fall
+    back to the registry (standalone use outside Hermes).
+    """
+    try:
+        from agent.credential_pool import load_pool
+    except ImportError:
+        return None
+    try:
+        pool = load_pool("antigravity")
+    except Exception:
+        return None
+    try:
+        if prefer_token:
+            wanted = prefer_token.strip()
+            for row in pool.entries():
+                token = (getattr(row, "access_token", "") or "").strip()
+                if token and token == wanted:
+                    return _pool_row_credential(row)
+        if pool.has_available(model=model):
+            row = pool.select(model=model)
+            if row is not None:
+                return _pool_row_credential(row)
+    except Exception:
+        return None
+    return None
+
+
+def _pool_row_credential(row: Any) -> dict[str, Any] | None:
+    """Normalize one pooled row to a static credential dict for the manager."""
+    token = (getattr(row, "access_token", "") or "").strip() or (
+        getattr(row, "runtime_api_key", "") or ""
+    ).strip()
+    if not token:
+        return None
+    extra = getattr(row, "extra", None) or {}
+    project = extra.get("project_id") or "aicode-consumers"
+    expires_ms = getattr(row, "expires_at_ms", None)
+    try:
+        expires_at = float(expires_ms) / 1000.0 if expires_ms else time.time() + 3600
+    except (TypeError, ValueError):
+        expires_at = time.time() + 3600
+    return {
+        "access_token": token,
+        "refresh_token": (getattr(row, "refresh_token", "") or "") or None,
+        "project_id": project,
+        "expires_at": expires_at,
+        "email": extra.get("email"),
+        "pool_label": getattr(row, "label", None),
+    }
+
+
 def antigravity_auth_handler(action: str, args: Any) -> bool:
     """``ProviderProfile.auth_handler`` for Google Antigravity.
 

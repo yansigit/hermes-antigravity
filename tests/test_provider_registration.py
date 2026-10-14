@@ -28,8 +28,15 @@ def test_antigravity_create_client_hook():
     assert hasattr(client.chat, "completions")
     assert hasattr(client.chat.completions, "create")
 
-def test_antigravity_model_flow_hook():
-    # The plugin owns a callable model flow for `hermes model` integration.
+def test_antigravity_writes_no_core_tables():
+    """Catalog rule 9: the plugin must not write core tables at import.
+
+    No overlay in ``HERMES_OVERLAYS``, no model flow in the core's flow
+    registry: inference and discovery go through the profile's own
+    ``create_client`` / ``fetch_models`` (the public seam). A dedicated
+    ``auth_type="oauth_external"`` hook belongs to the core issue tracker,
+    not to a private-table write here.
+    """
     import importlib.util
     from pathlib import Path
     init_path = Path(__file__).resolve().parent.parent / "__init__.py"
@@ -37,19 +44,14 @@ def test_antigravity_model_flow_hook():
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    assert callable(getattr(mod, "_model_flow_antigravity", None))
-    # Core registration is core-owned: only assert it when the core
-    # exposes the flow registry (older cores had _PROVIDER_MODEL_FLOWS;
-    # newer cores wire flows natively).
+    assert getattr(mod, "_model_flow_antigravity", None) is None, (
+        "custom model flow must stay out of the core's tables")
     try:
-        import hermes_cli.main as _m
+        from hermes_cli.providers import HERMES_OVERLAYS
     except ImportError:
         return
-    flows = getattr(_m, "_PROVIDER_MODEL_FLOWS", None)
-    if flows is None:
-        return
-    assert "antigravity" in flows
-    assert callable(flows["antigravity"])
+    assert "antigravity" not in HERMES_OVERLAYS, (
+        "import must not write the core overlay table")
 
 
 def test_antigravity_skips_models_health_probe():

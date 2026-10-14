@@ -307,3 +307,127 @@ def test_auth_add_warns_about_google_tos_before_login(monkeypatch=None):
     assert "suspension or termination" in out.lower(), (
         "the warning must state the concrete account risk")
     assert "API key" in out, "the warning must point at the compliant alternative"
+
+
+def _fake_pool_module(rows, *, available=True):
+    """A stand-in agent.credential_pool module serving fixed rows."""
+    import sys as _sys
+
+    class _Pool:
+        def entries(self):
+            return list(rows)
+
+        def has_available(self, model=None):
+            del model
+            return available and bool(rows)
+
+        def select(self, model=None):
+            del model
+            return rows[0] if rows else None
+
+    fake = type(_sys)("agent.credential_pool")
+    fake.load_pool = lambda *a, **k: _Pool()
+    return fake
+
+
+def _pool_row(token, project="proj-pool", label="me-oauth-1"):
+    from agent.credential_pool import PooledCredential
+
+    return PooledCredential(
+        provider="antigravity",
+        id="pool01",
+        label=label,
+        auth_type="oauth",
+        priority=0,
+        source="manual:antigravity_pkce",
+        access_token=token,
+        refresh_token="1//refresh",
+        expires_at_ms=int(9e9 * 1000),
+        extra={"project_id": project, "email": "me@example.com"},
+    )
+
+
+def test_resolve_pool_credential_prefers_the_leased_token():
+    """create_client(api_key=...) must serve the exact row the core leased."""
+    import sys
+
+    import auth as auth_mod
+
+    rows = [_pool_row("ya29.leased-token", project="proj-leased")]
+    fake = _fake_pool_module(rows)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        leased = auth_mod.resolve_pool_credential(prefer_token="ya29.leased-token")
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+    assert leased is not None
+    assert leased["access_token"] == "ya29.leased-token"
+    assert leased["project_id"] == "proj-leased"
+
+
+def test_resolve_pool_credential_selects_when_no_preference():
+    """Without a leased token the rotation-aware select() picks the row."""
+    import sys
+
+    import auth as auth_mod
+
+    rows = [_pool_row("ya29.selected-token", project="proj-selected")]
+    fake = _fake_pool_module(rows)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        leased = auth_mod.resolve_pool_credential()
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+    assert leased is not None
+    assert leased["access_token"] == "ya29.selected-token"
+    assert leased["project_id"] == "proj-selected"
+
+
+def test_resolve_pool_credential_empty_pool_means_registry_fallback():
+    """No usable row -> None so callers fall back to the account registry."""
+    import sys
+
+    import auth as auth_mod
+
+    fake = _fake_pool_module([], available=False)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        assert auth_mod.resolve_pool_credential() is None
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+
+
+def test_create_client_serves_the_pool_row_first():
+    """Inference must use the pooled row auth_handler wrote (catalog review)."""
+    import sys
+
+    from providers import get_provider_profile
+
+    rows = [_pool_row("ya29.inference-token", project="proj-inference")]
+    fake = _fake_pool_module(rows)
+    saved = sys.modules.get("agent.credential_pool")
+    sys.modules["agent.credential_pool"] = fake
+    try:
+        profile = get_provider_profile("antigravity")
+        assert profile is not None
+        client = profile.create_client(api_key="ya29.inference-token")
+        assert client is not None
+    finally:
+        if saved is not None:
+            sys.modules["agent.credential_pool"] = saved
+        else:
+            sys.modules.pop("agent.credential_pool", None)
+    assert client.auth.credentials["access_token"] == "ya29.inference-token"
+    assert client.auth.credentials["project_id"] == "proj-inference"
