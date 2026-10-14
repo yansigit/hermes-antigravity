@@ -1,10 +1,34 @@
 import os
+from dataclasses import dataclass, field
+from typing import Any
 from unittest.mock import patch
 from auth import (
     generate_pkce,
     extract_project_id,
     AntigravityAuthManager,
 )
+
+
+@dataclass
+class _StubPooledCredential:
+    """Hermetic stand-in for core's PooledCredential (no core import).
+
+    CI runs without the core's third-party deps (ruamel); every pool-touching
+    path in auth.py is duck-typed, so the stub only carries the fields the
+    tests construct and the code reads.
+    """
+
+    provider: str = "antigravity"
+    id: str = "pool01"
+    label: str = "me-oauth-1"
+    auth_type: str = "oauth"
+    priority: int = 0
+    source: str = "manual:antigravity_pkce"
+    access_token: str = ""
+    refresh_token: Any | None = None
+    base_url: Any | None = None
+    expires_at_ms: int | None = None
+    extra: dict = field(default_factory=dict)
 
 
 def test_generate_pkce():
@@ -202,7 +226,7 @@ def test_auth_handler_add_writes_one_pooled_row(monkeypatch=None):
 
     calls = {}
 
-    from agent.credential_pool import PooledCredential
+    PooledCredential = _StubPooledCredential
 
     class _Pool:
         def __init__(self):
@@ -287,8 +311,7 @@ def test_auth_add_warns_about_google_tos_before_login(monkeypatch=None):
 
     fake = type(sys)("agent.credential_pool")
     fake.load_pool = lambda *a, **k: _Pool()
-    from agent.credential_pool import PooledCredential
-    fake.PooledCredential = PooledCredential
+    fake.PooledCredential = _StubPooledCredential
     saved = sys.modules.get("agent.credential_pool")
     sys.modules["agent.credential_pool"] = fake
     try:
@@ -331,9 +354,7 @@ def _fake_pool_module(rows, *, available=True):
 
 
 def _pool_row(token, project="proj-pool", label="me-oauth-1"):
-    from agent.credential_pool import PooledCredential
-
-    return PooledCredential(
+    return _StubPooledCredential(
         provider="antigravity",
         id="pool01",
         label=label,
