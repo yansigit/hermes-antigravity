@@ -1131,7 +1131,10 @@ def _capture(fn, *args):
 
 def _registry_empty(sandbox: Path):
     from accounts import AntigravityAccountRegistry
-    return AntigravityAccountRegistry(registry_path=sandbox / "accounts.json")
+
+    path = sandbox / "accounts.json"
+    path.write_text('{"version": 2, "active_account": null, "accounts": {}}')
+    return AntigravityAccountRegistry(registry_path=path)
 
 
 def test_cli_quota_reports_no_accounts():
